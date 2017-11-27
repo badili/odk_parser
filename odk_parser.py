@@ -22,7 +22,7 @@ from django.http import HttpRequest
 
 from terminal_output import Terminal
 from excel_writer import ExcelWriter
-from models import ODKForm, RawSubmissions, FormViews, ViewsData, ViewTablesLookup, DictionaryItems, FormMappings, ProcessingErrors, ODKFormGroup
+from models import ODKForm, RawSubmissions, FormViews, ViewsData, ViewTablesLookup, DictionaryItems, FormMappings, ProcessingErrors, ODKFormGroup, SystemSettings
 # from sql import Query
 
 sentry = Client('http://412f07efec7d461cbcdaf686c3b01e51:c684fccd436e46169c71f8c841ed3b00@sentry.badili.co.ke/3')
@@ -52,7 +52,15 @@ request = HttpRequest()
 
 class OdkParser():
     def __init__(self):
-        terminal.tprint("Initializing the core ODK parser")
+        terminal.tprint("Initializing the core ODK parser", 'ok')
+
+    def is_settings_saved(self):
+        """Summary
+        
+        Returns:
+            TYPE: Description
+        """
+        return False
 
     def get_all_forms(self):
         """
@@ -2364,3 +2372,33 @@ class OdkParser():
             # frm['group_name'] = frm.form_group__group_name
             to_return.append(frm)
         return False, {'records': to_return, "queryRecordCount": p.count, "totalRecordCount": p.count}
+
+    def save_settings(self, request):
+        """
+        Saves the user settings to the database
+        """
+        try:
+            print request.POST
+            for key in request.POST:
+                if key == 'csrfmiddlewaretoken' or key == 'dest_db_confirm_password':
+                    continue
+                if request.POST[key] != '':
+                    # check if the setting exists, if it does, update it, else add it
+                    cur_setting = SystemSettings.objects.filter(setting_key=key)
+                    if len(cur_setting) == 0:
+                        cur_setting = SystemSettings(
+                            setting_key=key,
+                            setting_value=request.POST[key]
+                        )
+                        cur_setting.publish()
+                    else:
+                        cur_setting = SystemSettings.objects.get(setting_key=key)
+                        cur_setting.setting_value = request.POST[key]
+                        # now update
+                        cur_setting.publish()
+        except Exception as e:
+            terminal.tprint(str(e), 'ok')
+            sentry.captureException()
+            return {'error': True, 'message': str(e)}
+
+        return {'error': False, 'mappings': 'The settings were saved successfully'}
