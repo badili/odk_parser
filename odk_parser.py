@@ -9,7 +9,6 @@ import copy
 import subprocess
 import hashlib
 
-from ConfigParser import ConfigParser
 from datetime import datetime
 from collections import defaultdict, OrderedDict
 
@@ -126,10 +125,6 @@ class OdkParser():
         to_return = []
         to_return.append({'title': 'Select One', 'id': '-1'})
 
-        # get the form metadata
-        settings = ConfigParser()
-        settings.read(self.forms_settings)
-
         for form in all_forms:
             # check whether the form is already saved in the database
             try:
@@ -139,11 +134,7 @@ class OdkParser():
             except ODKForm.DoesNotExist as e:
                 # this form is not saved in the database, so save it
                 terminal.tprint("The form '%s' is not in the database, saving it" % form['id_string'], 'warn')
-                try:
-                    cur_form_group = settings.get('id_' + str(form['formid']), 'form_group')
-                    form_group = ODKFormGroup.objects.get(group_name=cur_form_group)
-                except Exception as e:
-                    form_group = None
+                form_group = None
 
                 cur_form = ODKForm(
                     form_id=form['formid'],
@@ -270,18 +261,17 @@ class OdkParser():
 
         return submissions_count
 
-    def read_settings(self, settings_file, variable):
-        parser = ConfigParser()
-        parser.readfp(settings_file)
-
     def get_form_structure_as_json(self, form_id):
         """
         check whether the form structure is already saved in the DB
         """
         try:
             cur_form = ODKForm.objects.get(form_id=form_id)
-            cur_form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
-            self.cur_form_group = cur_form_group.group_name
+            if cur_form.form_group_id is not None:
+                cur_form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
+                self.cur_form_group = cur_form_group.group_name
+            else:
+                self.cur_form_group = 'Undefined'
 
             # check if the structure exists
             if cur_form.structure is None:
@@ -426,18 +416,19 @@ class OdkParser():
             )
             dict_item.publish()
 
-            # add the dictionary item to the final database too. It is expecting that the table exists
-            insert_q = '''
-                INSERT INTO dictionary_items(form_group, parent_node, t_key, t_type, t_locale, t_value, date_created, date_modified)
-                VALUES(%s, %s, %s, %s, %s, %s, %s, %s)
-            '''
-            with connections['mapped'].cursor() as cursor:
-                try:
-                    cursor.execute(insert_q, (self.cur_form_group, parent_node, node['name'], node_type, locale, node_label, now, now))
-                except Exception as e:
-                    terminal.tprint(str(e), 'fail')
-                    sentry.captureException()
-                    raise
+            if 'mapped' in connections:
+                # add the dictionary item to the final database too. It is expecting that the table exists
+                insert_q = '''
+                    INSERT INTO dictionary_items(form_group, parent_node, t_key, t_type, t_locale, t_value, date_created, date_modified)
+                    VALUES(%s, %s, %s, %s, %s, %s, %s, %s)
+                '''
+                with connections['mapped'].cursor() as cursor:
+                    try:
+                        cursor.execute(insert_q, (self.cur_form_group, parent_node, node['name'], node_type, locale, node_label, now, now))
+                    except Exception as e:
+                        terminal.tprint(str(e), 'fail')
+                        sentry.captureException()
+                        raise
 
             if 'type' in node:
                 if node['type'] == 'select one' or node['type'] == 'select all that apply':
@@ -638,7 +629,6 @@ class OdkParser():
     def fetch_merge_data(self, form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True):
         """
         Given a form id and nodes of interest, get data from all associated forms
-        
         Args:
             form_id (TYPE): Description
             nodes (TYPE): Description
@@ -647,32 +637,22 @@ class OdkParser():
             view_name (TYPE): Description
             uuids (None, optional): A list of uuids to use to fetch the corresponding data instead of fetching all the submitted data
             update_local_data (bool, optional): Whether or not to update the local dataset
-        
         Returns:
             TYPE: Description
-        
         Raises:
             Exception: Description
         """
 
-        # get the form metadata
-        settings = ConfigParser()
-        settings.read(self.forms_settings)
-
         associated_forms = []
         try:
+            cur_form = ODKForm.objects.get(form_id=form_id)
+            form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
+
             # get all the form ids belonging to the same group
-            self.form_group = settings.get('id_' + str(form_id), 'form_group')
-            for section in settings.sections():
-                this_group = settings.get(section, 'form_group')
-                if this_group == self.form_group:
-                    m = re.findall("/?id_(\d+)$", section)
-                    associated_forms.append(m[0])
-                else:
-                    # form_group section doesn't exist, so skip this
-                    terminal.tprint("\tNot interested in this form (%s), so skip it" % this_group, 'okblue')
-                    continue
-            form_name = settings.get(self.form_group, 'name')
+            temp_forms = ODKFormGroup.objects.filter(form_group_id=cur_form.form_group_id)
+            for t_form in temp_forms:
+                associated_forms.append(t_form.form_id)
+            form_name = form_group.group_name
         except Exception as e:
             print(traceback.format_exc())
             # there is an error getting the associated forms, so get data from just one form
@@ -764,16 +744,16 @@ class OdkParser():
             terminal.tprint("The form with id '%s' has no submissions returning as such" % str(form_id), 'fail')
             return None
 
-        # print submissions_list.count()
-        # get the form metadata
-        config_settings = ConfigParser()
-        config_settings.read(self.forms_settings)
-
         try:
+            # get the form metadata
+            # cur_form = ODKForm.objects.get(form_id=form_id)
+            # form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
+
             # get the fields to include as part of the form metadata
-            form_meta = config_settings.get('id_' + str(form_id), 'metadata').split(',')
-            self.pk_name = config_settings.get('id_' + str(form_id), 'pk_name')
-            self.sk_format = config_settings.get('id_' + str(form_id), 'sk_name')
+            # todo: Add option of specifying metadata
+            form_meta = ''
+            self.pk_name = 'b3a_'
+            self.sk_format = 'id_'
         except Exception as e:
             terminal.tprint("Form settings for form id (%d) haven't been defined" % form_id, 'fail')
             logger.info("The settings for the form id (%s) haven't been defined" % str(form_id))
@@ -784,8 +764,6 @@ class OdkParser():
         if screen_nodes is not None:
             screen_nodes.extend(form_meta)
             screen_nodes.append('unique_id')
-        # terminal.tprint('\tPrint the selected nodes...', 'warn')
-        # terminal.tprint(json.dumps(screen_nodes), 'warn')
 
         submissions = []
         i = 0
@@ -975,9 +953,7 @@ class OdkParser():
 
             try:
                 # get the country codes to clean
-                settings = ConfigParser()
-                settings.read(self.forms_settings)
-                country_codes = settings.items('countries')
+                country_codes = []
                 for country, c_code in country_codes:
                     if re.search(",", c_code) is not None:
                         c_code = c_code.split(',')
@@ -1115,14 +1091,12 @@ class OdkParser():
         '''
         @todo Add data validation
         '''
-        data = json.loads(request.body)
-        # get the form metadata
-        config_settings = ConfigParser()
-        config_settings.read(self.forms_settings)
-
         try:
-            cur_form_group = config_settings.get('id_' + str(data['form']['id']), 'form_group')
-            form_group = ODKFormGroup.objects.get(group_name=cur_form_group)
+            data = json.loads(request.body)
+
+            cur_form = ODKForm.objects.get(form_id=data['form']['id'])
+            form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
+
             # Check if it a foreign key
             is_foreign_key = self.foreign_key_check(settings.DATABASES['mapped']['NAME'], data['table']['title'], data['drop_item']['title'])
             if is_foreign_key is not False and is_foreign_key[0] is not None:
@@ -2377,6 +2351,8 @@ class OdkParser():
         """
         Get all the defined ODK forms
         """
+        # check if there are new forms first
+        self.refresh_forms()
         all_forms = ODKForm.objects.select_related('form_group').all().values('id', 'form_id', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id')
         p = Paginator(all_forms, per_page)
         p_forms = p.page(cur_page)
@@ -2418,6 +2394,19 @@ class OdkParser():
             return {'error': True, 'message': str(e)}
 
         return {'error': False, 'mappings': 'The settings were saved successfully'}
+
+    def get_all_settings(self):
+        """
+        Get all the defined system settings
+        Returns:
+            list: Returns a list of all the defined system settings
+        """
+        all_settings = list(SystemSettings.objects.all().values('setting_key', 'setting_value'))
+        to_return = {}
+        for setting in all_settings:
+            to_return[setting['setting_key']] = setting['setting_value']
+
+        return to_return
 
     def is_first_login(self):
         """
