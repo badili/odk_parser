@@ -54,13 +54,30 @@ class OdkParser():
     def __init__(self):
         terminal.tprint("Initializing the core ODK parser", 'ok')
 
-    def is_settings_saved(self):
+        # ona api end points
+        self.api_all_forms = 'api/v1/forms'
+        self.form_data = 'api/v1/data/'
+        self.form_stats = 'api/v1/stats/submissions/'
+        self.form_rep = 'api/v1/forms/'
+        self.media = 'api/v1/media'
+
+        # load the ona settings
+        self.load_ona_settings()
+
+    def load_ona_settings(self):
+        # if the ona settings have been saved, load them here for later use
+        ona_settings = SystemSettings.objects.filter(setting_key__contains='ona_')
+
+        for setting in ona_settings:
+            setattr(self, setting.setting_key, setting.setting_value)
+
+    def are_ona_settings_saved(self):
         """Summary
-        
         Returns:
             TYPE: Description
         """
-        return False
+        ona_settings = SystemSettings.objects.filter(setting_key__contains='ona_')
+        return False if len(ona_settings) == 0 else True
 
     def get_all_forms(self):
         """
@@ -100,7 +117,7 @@ class OdkParser():
         """
         Refresh the list of forms in the database
         """
-        url = "%s%s" % (self.server, self.api_all_forms)
+        url = "%s%s" % (self.ona_url, self.api_all_forms)
         all_forms = self.process_curl_request(url)
         if all_forms is None:
             print "Error while executing the API request %s" % url
@@ -192,8 +209,8 @@ class OdkParser():
                 # we have some new submissions, so fetch them from the server and save them offline
                 terminal.tprint("\tWe have some new submissions, so fetch them from the server and save them offline", 'info')
                 # fetch the submissions and filter by submission time
-                url = "%s%s%d.json?start=1&limit=5&sort=%s" % (self.server, self.form_data, form_id, '{"_submission_time":-1}')
-                url = "%s%s%d.json?fields=[\"_uuid\", \"_id\"]" % (self.server, self.form_data, form_id)
+                url = "%s%s%d.json?start=1&limit=5&sort=%s" % (self.ona_url, self.form_data, form_id, '{"_submission_time":-1}')
+                url = "%s%s%d.json?fields=[\"_uuid\", \"_id\"]" % (self.ona_url, self.form_data, form_id)
                 submission_uuids = self.process_curl_request(url)
 
                 for uuid in submission_uuids:
@@ -203,7 +220,7 @@ class OdkParser():
                     cur_submission = RawSubmissions.objects.filter(form_id=odk_form.id, uuid=uuid['_uuid'])
                     if cur_submission.count() == 0:
                         # the current submission is not saved in the database, so fetch and save it...
-                        url = "%s%s%d/%s" % (self.server, self.form_data, form_id, uuid['_id'])
+                        url = "%s%s%d/%s" % (self.ona_url, self.form_data, form_id, uuid['_id'])
                         submission = self.process_curl_request(url)
 
                         t_submission = RawSubmissions(
@@ -240,7 +257,7 @@ class OdkParser():
     def online_submissions_count(self, form_id):
         # given a form id, process the number of submitted instances
         # terminal.tprint("\tComputing the number of submissions of the form with id '%s'" % form_id, 'info')
-        url = "%s%s%d?%s" % (self.server, self.form_stats, form_id, "group=&name=time")
+        url = "%s%s%d?%s" % (self.ona_url, self.form_stats, form_id, "group=&name=time")
         stats = self.process_curl_request(url)
 
         if stats is None:
@@ -301,7 +318,7 @@ class OdkParser():
         """
         Get the structure of the current form
         """
-        url = "%s%s%d/form.json" % (self.server, self.form_rep, form_id)
+        url = "%s%s%d/form.json" % (self.ona_url, self.form_rep, form_id)
         terminal.tprint("Fetching the form structure for form with id = %d" % form_id, 'header')
         form_structure = self.process_curl_request(url)
 
@@ -998,7 +1015,7 @@ class OdkParser():
         """
         Create and execute a curl request
         """
-        headers = {'Authorization': "Token %s" % self.api_token}
+        headers = {'Authorization': "Token %s" % self.ona_api_token}
         terminal.tprint("\tProcessing API request %s" % url, 'okblue')
         try:
             r = requests.get(url, headers=headers)
@@ -2378,7 +2395,6 @@ class OdkParser():
         Saves the user settings to the database
         """
         try:
-            print request.POST
             for key in request.POST:
                 if key == 'csrfmiddlewaretoken' or key == 'dest_db_confirm_password':
                     continue
@@ -2402,3 +2418,14 @@ class OdkParser():
             return {'error': True, 'message': str(e)}
 
         return {'error': False, 'mappings': 'The settings were saved successfully'}
+
+    def is_first_login(self):
+        """
+        Check if this is the first time that the user is loggin in
+        Returns:
+            boolean: Returns True if it is the first time the user is logging in the system else returns false
+        """
+        system_name = SystemSettings.objects.filter(setting_key='system_name')
+
+        return True if len(system_name) == 0 else False
+
