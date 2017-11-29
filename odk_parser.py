@@ -11,6 +11,7 @@ import hashlib
 
 from datetime import datetime
 from collections import defaultdict, OrderedDict
+from django.db import connections
 
 from raven import Client
 from django.conf import settings
@@ -63,12 +64,28 @@ class OdkParser():
         # load the ona settings
         self.load_ona_settings()
 
+        # load the destination database
+        self.load_mapped_connection()
+
     def load_ona_settings(self):
         # if the ona settings have been saved, load them here for later use
         ona_settings = SystemSettings.objects.filter(setting_key__contains='ona_')
 
         for setting in ona_settings:
             setattr(self, setting.setting_key, setting.setting_value)
+
+    def load_mapped_connection(self):
+        all_settings = self.get_all_settings()
+        if 'dest_db_host_name' in all_settings:
+            newDatabase = {}
+            newDatabase["id"] = 'mapped'            # just something unique
+            newDatabase['ENGINE'] = 'django.db.backends.mysql'
+            newDatabase['NAME'] = all_settings['dest_db_name']
+            newDatabase['USER'] = all_settings['dest_db_username']
+            newDatabase['PASSWORD'] = all_settings['dest_db_password']
+            newDatabase['HOST'] = all_settings['dest_db_host_name']
+            newDatabase['PORT'] = all_settings['dest_db_port']
+            connections.databases['mapped'] = newDatabase
 
     def are_ona_settings_saved(self):
         """Summary
@@ -427,8 +444,9 @@ class OdkParser():
                         cursor.execute(insert_q, (self.cur_form_group, parent_node, node['name'], node_type, locale, node_label, now, now))
                     except Exception as e:
                         terminal.tprint(str(e), 'fail')
-                        sentry.captureException()
-                        raise
+                        # We can live with this
+                        # sentry.captureException()
+                        # raise
 
             if 'type' in node:
                 if node['type'] == 'select one' or node['type'] == 'select all that apply':
@@ -804,9 +822,6 @@ class OdkParser():
                     if val_type != 'is_list' and val_type != 'is_json':
                         # logger.warn('%s is not in the nodes of interest -- %s' % (clean_key, json.dumps(nodes_of_interest)))
                         continue
-
-            if clean_key in self.country_qsts:
-                value = self.get_clean_country_code(value)
 
             is_json = True
 
@@ -2365,6 +2380,21 @@ class OdkParser():
             # frm['group_name'] = frm.form_group__group_name
             to_return.append(frm)
         return False, {'records': to_return, "queryRecordCount": p.count, "totalRecordCount": p.count}
+
+    def get_odk_forms_list(self):
+        """
+        Get all the defined ODK forms
+        """
+        # check if there are new forms first
+        self.refresh_forms()
+        all_forms = ODKForm.objects.select_related('form_group').all().values('id', 'form_id', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id')
+
+        to_return = []
+        for frm in all_forms:
+            # frm = model_to_dict(form)
+            # frm['group_name'] = frm.form_group__group_name
+            to_return.append(frm)
+        return to_return
 
     def save_settings(self, request):
         """
