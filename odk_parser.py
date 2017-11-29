@@ -86,6 +86,8 @@ class OdkParser():
             newDatabase['HOST'] = all_settings['dest_db_host_name']
             newDatabase['PORT'] = all_settings['dest_db_port']
             connections.databases['mapped'] = newDatabase
+        else:
+            terminal.tprint("The mapped database connection is not set, mappings will not be possible downstream", 'fail')
 
     def are_ona_settings_saved(self):
         """Summary
