@@ -2450,3 +2450,42 @@ class OdkParser():
 
         return True if len(system_name) == 0 else False
 
+    def fetch_form_details(self, form_id):
+        form = ODKForm.objects.all().filter(id=form_id)
+        cur_form = model_to_dict(form[0])
+
+        return False, cur_form
+
+    def save_form_details(self, request):
+        print request.POST
+        try:
+            form_id = int(request.POST['form_id'])
+            form = ODKForm.objects.get(form_id=form_id)
+
+            group_id = int(request.POST['group_name'])
+            if group_id == -1:
+                form.form_group = None
+            else:
+                form.form_group = ODKFormGroup.objects.get(id=group_id)
+            form.auto_update = True if request.POST['auto_update'] == 'yes' else False
+            form.is_source_deleted = True if request.POST['is_source_deleted'] == 'yes' else False
+            form.publish()
+
+            return False, 'The form settings were saved successfully'
+        except Exception as e:
+            terminal.tprint(str(e), 'fail')
+            return True, 'There was an error while saving the form settings'
+
+    def fetch_form_groups(self):
+        try:
+            groups = ODKFormGroup.objects.all()
+
+            all_groups = []
+            for frm_group in groups:
+                all_groups.append(model_to_dict(frm_group))
+        except Exception as e:
+            terminal.tprint(str(e))
+            return True, 'There was an error while fetching data from the database'
+
+        return False, all_groups
+
