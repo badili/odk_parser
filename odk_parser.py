@@ -1370,12 +1370,12 @@ class OdkParser():
         all_comments = []
 
         for form_group in form_groups:
-            terminal.tprint("\n\n\nGenerating queries for the group '%s'" % form_group.group_name, 'debug')
             self.cur_group_queries = collections.OrderedDict()
             self.all_foreign_keys = defaultdict(dict)
             tables = list(FormMappings.objects.filter(form_group=form_group.group_name).values('dest_table_name').distinct())
             for table in tables:
                 try:
+                    terminal.tprint("\n\n\nGenerating queries for the group '%s'" % form_group.group_name, 'debug')
                     self.generate_table_query(form_group, table['dest_table_name'], None, None)
                 except Exception as e:
                     terminal.tprint('\t%s' % str(e), 'fail')
@@ -1383,7 +1383,7 @@ class OdkParser():
                     all_comments.append(str(e))
                     break
 
-            terminal.tprint('\t%s' % json.dumps(self.cur_group_queries), 'warn')
+            # terminal.tprint('\t%s' % json.dumps(self.cur_group_queries), 'warn')
             try:
                 (is_error, comments) = self.process_form_group_data(form_group, is_dry_run, submissions)
                 all_comments = copy.deepcopy(all_comments) + copy.deepcopy(comments)
@@ -1630,6 +1630,14 @@ class OdkParser():
         """
         terminal.tprint("\n\nProcessing the data for form group '%s'" % form_group.group_name, 'okblue')
         comments = []
+
+        if len(FormMappings.objects.filter(form_group=form_group.group_name)) == 0:
+            mssg = 'The form group "%s" has no defined mappings.' % form_group.group_name
+            terminal.tprint('\t%s' % mssg, 'okblue')
+            comments.append(mssg)
+            is_error = False
+            return is_error, comments
+
         odk_form = list(ODKForm.objects.filter(form_group=form_group.id).values('id', 'form_id'))[0]
 
         all_nodes = []
@@ -1646,7 +1654,7 @@ class OdkParser():
             terminal.tprint(json.dumps(all_instances), 'warn')
         else:
             all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, None, not is_dry_run, is_dry_run)
-        
+
         terminal.tprint('\tTotal submissions fetched %d' % len(all_instances), 'okblue')
 
         is_error = False
