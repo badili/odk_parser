@@ -16,7 +16,7 @@ from django.db import connections
 from raven import Client
 from django.conf import settings
 from django.forms.models import model_to_dict
-from django.db import connection, connections, transaction, IntegrityError
+from django.db import connection, transaction, IntegrityError
 from django.core.paginator import Paginator
 from django.http import HttpRequest
 
@@ -669,7 +669,7 @@ class OdkParser():
             form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
 
             # get all the form ids belonging to the same group
-            temp_forms = ODKFormGroup.objects.filter(form_group_id=cur_form.form_group_id)
+            temp_forms = ODKForm.objects.filter(form_group_id=cur_form.form_group_id)
             for t_form in temp_forms:
                 associated_forms.append(t_form.form_id)
             form_name = form_group.group_name
