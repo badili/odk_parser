@@ -504,12 +504,12 @@ class OdkParser():
             terminal.tprint("Deleting '%s'" % folder_path + os.sep + filename, 'fail')
             os.unlink(folder_path + os.sep + filename)
 
-    def save_user_view(self, form_id, view_name, nodes, all_submissions, structure):
+    def save_user_view(self, form_id, view_name, nodes, all_submissions, structure, form_group):
         """
         Given a view with a section of the user defined data, create a view of the selected nodes
         """
         # get a proper view name
-        prop_view_name = self.formulate_view_name(view_name)
+        prop_view_name = self.formulate_view_name(view_name, form_group)
 
         # save the submissions as an excel an then call a function to create the table(s)
         # create a temp dir for this
@@ -520,12 +520,15 @@ class OdkParser():
             terminal.tprint("Create the directory '%s'" % prop_view_name, 'warn')
             os.makedirs(prop_view_name)
 
-        writer = ExcelWriter(prop_view_name, 'csv', prop_view_name)
+        # writer = ExcelWriter(prop_view_name, 'csv', prop_view_name)
+        writer = ExcelWriter('%s/%s.xls' % (prop_view_name, prop_view_name))
         writer.create_workbook(all_submissions, structure)
         terminal.tprint("\tFinished creating the csv files", 'warn')
 
         # now we have all our selected submissions as csv files, so process them
-        import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
+        # import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
+        import_command = "csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
+        terminal.tprint(import_command, 'warn')
         table_views = []
         for filename in os.listdir(prop_view_name):
             terminal.tprint(filename, 'fail')
@@ -545,6 +548,7 @@ class OdkParser():
             terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'okblue')
             if filename.endswith(".csv"):
                 cmd = import_command % (
+                    settings.DATABASES['default']['DRIVER'],
                     settings.DATABASES['default']['NAME'],
                     settings.DATABASES['default']['USER'],
                     settings.DATABASES['default']['PASSWORD'],
@@ -625,7 +629,7 @@ class OdkParser():
             )
             cur_view.publish()
 
-    def formulate_view_name(self, view_name):
+    def formulate_view_name(self, view_name, form_group):
         """
         Formulate a proper view name that will be used as the view name in the database
         """
@@ -634,7 +638,7 @@ class OdkParser():
 
         # convert non alpha numeric characters to spaces
         view_name = re.sub(r"[^a-zA-Z0-9]+", '_', view_name)
-        form_group = re.sub(r"[^a-zA-Z0-9]+", '_', self.form_group)
+        form_group = re.sub(r"[^a-zA-Z0-9]+", '_', form_group)
 
         # create a unique view name
         view_name = "%s_%s" % (form_group, view_name)
@@ -720,7 +724,7 @@ class OdkParser():
         # check if there is need to create a database view of this data
         if download_type == 'download_save':
             try:
-                self.save_user_view(form_id, view_name, nodes, all_submissions, self.output_structure)
+                self.save_user_view(form_id, view_name, nodes, all_submissions, self.output_structure, form_group.group_name)
             except Exception as e:
                 sentry.captureException()
                 return {'is_downloadable': False, 'error': True, 'message': str(e)}
