@@ -521,7 +521,7 @@ class OdkParser():
             os.makedirs(prop_view_name)
 
         # writer = ExcelWriter(prop_view_name, 'csv', prop_view_name)
-        writer = ExcelWriter('%s/%s.xls' % (prop_view_name, prop_view_name))
+        writer = ExcelWriter('%s/%s.csv' % (prop_view_name, prop_view_name))
         writer.create_workbook(all_submissions, structure)
         terminal.tprint("\tFinished creating the csv files", 'warn')
 
@@ -1045,7 +1045,8 @@ class OdkParser():
                 'view_name': form_view.view_name,
                 'date_created': view_date,
                 'no_sub_tables': views_sub_table.count(),
-                'auto_process': 'Yes'
+                'auto_process': 'Yes',
+                'actions': '<button type="button" data-identifier="%s" class="refresh_view_data btn btn-sm btn-outline btn-warning">Refresh Data</button>' % form_view.id
             })
         return all_data
 
@@ -2501,3 +2502,42 @@ class OdkParser():
 
         return False, all_groups
 
+    def get_form_groups_info(self, cur_page, per_page, offset, sorts, queries):
+        """
+        Get all the defined form groups
+        """
+        all_groups = ODKFormGroup.objects.all().values('id', 'order_index', 'group_name', 'comments').order_by('id')
+        p = Paginator(all_groups, per_page)
+        f_groups = p.page(cur_page)
+        if sorts is not None:
+            print sorts
+
+        to_return = []
+        for grp in f_groups:
+            grp['actions'] = "<a class='edit_group' data-group_id='%d'>Edit Group</a>" % (grp['id'])
+            to_return.append(grp)
+        return False, {'records': to_return, "queryRecordCount": p.count, "totalRecordCount": p.count}
+
+    def save_group_details(self, request):
+        try:
+            group_id = request.POST['group_id']
+            group_name = request.POST['group_name']
+            group_index = request.POST['group_index']
+            comments = request.POST['comments']
+
+            if group_id != '':
+                group_id = int(group_id)
+                group = ODKFormGroup.objects.get(id=group_id)
+            else:
+                group = ODKFormGroup()
+
+            group.order_index = group_index
+            group.group_name = group_name
+            group.comments = comments
+
+            group.publish()
+
+            return False, 'The group settings were saved successfully'
+        except Exception as e:
+            terminal.tprint(str(e), 'fail')
+            return True, 'There was an error while saving the group settings'
