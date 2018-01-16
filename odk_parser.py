@@ -518,40 +518,46 @@ class OdkParser():
 
         # save the submissions as an excel an then call a function to create the table(s)
         # create a temp dir for this
-        if os.path.exists(prop_view_name):
-            self.delete_folder_contents(prop_view_name)
+        if not os.path.exists(settings.TEMPDIR):
+            os.makedirs(settings.TEMPDIR)
+
+        full_path = os.path.join(settings.TEMPDIR, prop_view_name)
+        if os.path.exists(full_path):
+            self.delete_folder_contents(full_path)
         else:
             # create the directory
-            terminal.tprint("Create the directory '%s'" % prop_view_name, 'warn')
-            os.makedirs(prop_view_name)
+            terminal.tprint("Create the directory '%s'" % full_path, 'warn')
+            os.makedirs(full_path)
 
         # writer = ExcelWriter(prop_view_name, 'csv', prop_view_name)
-        writer = ExcelWriter('%s/%s.csv' % (prop_view_name, prop_view_name))
+        writer = ExcelWriter(os.path.join(full_path, '%s.csv' % prop_view_name))
         writer.create_workbook(all_submissions, structure)
         terminal.tprint("\tFinished creating the csv files", 'warn')
 
         # now we have all our selected submissions as csv files, so process them
         # import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
-        import_command = "csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
+        import_command = "env/bin/csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
         terminal.tprint(import_command, 'warn')
         table_views = []
-        for filename in os.listdir(prop_view_name):
+        for filename in os.listdir(full_path):
             terminal.tprint(filename, 'fail')
             if filename == '.' or filename == '..':
                 continue
 
             basename = os.path.splitext(filename)[0]
-            table_name = "%s_%s" % (prop_view_name, basename)
-            table_name_hash = hashlib.md5(table_name)
+            table_name = '%s_%s' % (prop_view_name, basename)
+            table_name_hash = hashlib.md5(table_name.encode('utf-8'))
             terminal.tprint("Hashed the table name '%s'" % table_name, 'warn')
             table_name_hash_dig = "v_%s" % table_name_hash.hexdigest()
             # print (table_name_hash_dig)
             terminal.tprint("Hashed the table name '%s' to '%s'" % (table_name, table_name_hash_dig), 'warn')
 
-            filename = prop_view_name + os.sep + filename
+            filename = os.path.join(full_path, filename).encode('utf-8')
+            base_name, file_extension = os.path.splitext(filename)
+            # print (base_name, file_extension)
 
             terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'okblue')
-            if filename.endswith(".csv"):
+            if file_extension == '.csv':
                 cmd = import_command % (
                     settings.DATABASES['default']['DRIVER'],
                     settings.DATABASES['default']['NAME'],
@@ -597,8 +603,8 @@ class OdkParser():
 
         # clean up process
         # delete the generated files
-        self.delete_folder_contents(prop_view_name)
-        os.rmdir(prop_view_name)
+        self.delete_folder_contents(full_path)
+        os.rmdir(full_path)
 
         form_view = FormViews.objects.filter(view_name=view_name)
         odk_form = ODKForm.objects.get(form_id=form_id)
