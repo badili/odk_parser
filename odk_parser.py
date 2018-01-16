@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+from __future__ import print_function
 import requests
 import re
 import os
@@ -20,9 +22,12 @@ from django.db import connection, transaction, IntegrityError
 from django.core.paginator import Paginator
 from django.http import HttpRequest
 
-from terminal_output import Terminal
-from excel_writer import ExcelWriter
-from models import ODKForm, RawSubmissions, FormViews, ViewsData, ViewTablesLookup, DictionaryItems, FormMappings, ProcessingErrors, ODKFormGroup, SystemSettings
+from .terminal_output import Terminal
+from .excel_writer import ExcelWriter
+from .models import ODKForm, RawSubmissions, FormViews, ViewsData, ViewTablesLookup, DictionaryItems, FormMappings, ProcessingErrors, ODKFormGroup, SystemSettings
+import six
+from six.moves import range
+from six.moves import zip
 # from sql import Query
 
 sentry = Client('http://412f07efec7d461cbcdaf686c3b01e51:c684fccd436e46169c71f8c841ed3b00@sentry.badili.co.ke/3')
@@ -138,7 +143,7 @@ class OdkParser():
         url = "%s%s" % (self.ona_url, self.api_all_forms)
         all_forms = self.process_curl_request(url)
         if all_forms is None:
-            print "Error while executing the API request %s" % url
+            print("Error while executing the API request %s" % url)
             return
 
         to_return = []
@@ -315,7 +320,7 @@ class OdkParser():
                 self.top_level_hierarchy = self.extract_repeating_groups(cur_form.structure, 0)
                 # terminal.tprint(json.dumps(cur_form.structure), 'okblue')
         except Exception as e:
-            print(traceback.format_exc())
+            print((traceback.format_exc()))
             logger.debug(str(e))
             terminal.tprint(str(e), 'fail')
             sentry.captureException()
@@ -556,7 +561,7 @@ class OdkParser():
                     filename,
                 )
                 terminal.tprint("\tRunning the command '%s'" % cmd, 'ok')
-                print subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
+                print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
 
                 # run commands to create primary key
                 try:
@@ -678,7 +683,7 @@ class OdkParser():
                 associated_forms.append(t_form.form_id)
             form_name = form_group.group_name
         except Exception as e:
-            print(traceback.format_exc())
+            print((traceback.format_exc()))
             # there is an error getting the associated forms, so get data from just one form
             terminal.tprint(str(e), 'fail')
             associated_forms.append(form_id)
@@ -813,7 +818,7 @@ class OdkParser():
         # the sheet_name is the name of the sheet where the current data will be saved
         cur_node = {}
 
-        for key, value in node.iteritems():
+        for key, value in six.iteritems(node):
             # clean the key
             clean_key = self.clean_json_key(key)
             if clean_key == '_geolocation':
@@ -845,7 +850,7 @@ class OdkParser():
                 value = 0
             elif val_type == 'is_none':
                 terminal.tprint(key, 'warn')
-                print value
+                print(value)
                 is_json = False
                 value = 'N/A'
             else:
@@ -907,7 +912,7 @@ class OdkParser():
                 try:
                     json.loads(input)
                 except ValueError:
-                    if isinstance(input, basestring) is True:
+                    if isinstance(input, six.string_types) is True:
                         return 'is_string'
 
                     terminal.tprint(str(input), 'fail')
@@ -955,7 +960,7 @@ class OdkParser():
 
     def post_data_processing(self, data, csv_files):
         new_data = {}
-        for key, node in data.iteritems():
+        for key, node in six.iteritems(data):
             if isinstance(node, list) is True:
                 if key not in csv_files:
                     csv_files[key] = []
@@ -993,15 +998,15 @@ class OdkParser():
             if code in self.clean_country_codes:
                 return self.clean_country_codes[code]
             else:
-                for c_code, country in self.clean_country_codes.iteritems():
+                for c_code, country in six.iteritems(self.clean_country_codes):
                     if re.search(c_code, code, re.IGNORECASE) is not None:
                         return country
 
                 # if we are still here, the code wasnt found
                 terminal.tprint("Couldn't find (%s) in the settings" % code, 'fail')
                 terminal.tprint(c_code + '--' + country, 'okblue')
-                print self.clean_country_codes
-                print ''
+                print(self.clean_country_codes)
+                print('')
                 return code
         except Exception as e:
             terminal.tprint(str(e), 'fail')
@@ -1617,7 +1622,7 @@ class OdkParser():
         # add all foreign keys
         all_fks = self.get_all_foreign_keys(table)
         if len(all_fks) != 0:
-            for col, cur_fk in fks_to_add.iteritems():
+            for col, cur_fk in six.iteritems(fks_to_add):
                 self.cur_group_queries[table]['columns'][col] = cur_fk
 
         terminal.tprint('\tGenerated query for %s: %s' % (table, final_query), 'ok')
@@ -1646,7 +1651,7 @@ class OdkParser():
         odk_form = list(ODKForm.objects.filter(form_group=form_group.id).values('id', 'form_id'))[0]
 
         all_nodes = []
-        for (group_name, cur_group) in self.cur_group_queries.iteritems():
+        for (group_name, cur_group) in six.iteritems(self.cur_group_queries):
             all_nodes = copy.deepcopy(all_nodes) + copy.deepcopy(cur_group['source_datapoints'])
 
         # if we dont have the instance id in the nodes list, include it
@@ -1765,7 +1770,7 @@ class OdkParser():
         self.cur_fk = {}
         cur_dataset = {}
         # terminal.tprint(json.dumps(self.cur_group_queries), 'ok')
-        for table, cur_group in self.cur_group_queries.iteritems():
+        for table, cur_group in six.iteritems(self.cur_group_queries):
             self.output_structure[table] = ['unique_id']
             self.cur_fk[table] = []
 
@@ -1801,7 +1806,7 @@ class OdkParser():
                                 continue
                             self.cur_fk[table].append(inserted_data[0])
                         except Exception as e:
-                            self.create_error_log_entry('unknown', str(e), data['instanceID'], 'Query: %s, Data: %s' % (cur_group['query'], json.dumps(data_points[i].values())))
+                            self.create_error_log_entry('unknown', str(e), data['instanceID'], 'Query: %s, Data: %s' % (cur_group['query'], json.dumps(list(data_points[i].values()))))
                             terminal.tprint('\tError (%s) while executing the final queries.' % str(e), 'fail')
                             sentry.captureException()
                             raise
@@ -1948,7 +1953,7 @@ class OdkParser():
                             linked_nodes.append(linked_data[0][0])
 
                             # check if we are expecting the companion data....
-                            if dict_info['odk_node'] in q_meta['actual_data_nodes'].keys():
+                            if dict_info['odk_node'] in list(q_meta['actual_data_nodes'].keys()):
                                 # we expect to save this node corresponding data in another column
                                 corresponding_data.append({
                                     'dest_col': q_meta['actual_data_nodes'][dict_info['odk_node']],
@@ -2039,13 +2044,13 @@ class OdkParser():
         all_dup_data_points = []
         if len(linked_nodes) != 0:
             # terminal.tprint('\Companion data: %s' % json.dumps(corresponding_data), 'fail')
-            no_occurences = data_points.values().count('place_holder')
+            no_occurences = list(data_points.values()).count('place_holder')
             iterations = len(linked_nodes) / no_occurences
             for i in range(0, iterations):
                 dp = OrderedDict()
                 ddp = OrderedDict()
                 j = 0
-                for col, node in data_points.iteritems():
+                for col, node in six.iteritems(data_points):
                     cur_linked_index = (i * no_occurences) + j
                     if node == 'place_holder':
                         dp[col] = linked_nodes[cur_linked_index]
@@ -2053,9 +2058,9 @@ class OdkParser():
                     else:
                         dp[col] = node
 
-                    if col in dup_data_points.keys() and dup_data_points[col] == 'place_holder':
+                    if col in list(dup_data_points.keys()) and dup_data_points[col] == 'place_holder':
                         ddp[col] = linked_nodes[cur_linked_index]
-                    elif col in dup_data_points.keys():
+                    elif col in list(dup_data_points.keys()):
                         ddp[col] = node
 
                 # Update the corresponding data point
@@ -2254,7 +2259,7 @@ class OdkParser():
                 to_return[res['form_id']]['no_submissions'] += res['r_count']
 
         return_this = []
-        for form_id, details in to_return.iteritems():
+        for form_id, details in six.iteritems(to_return):
             # "{0:0.2f}".format(loc[1])
             # details['perc_error'] = "{:.2f}".format(((details['no_submissions'] - details['no_processed']) / details['no_submissions']) * 100)
             # details['perc_error'] = int(details['unprocessed']) / int(details['no_submissions'])
@@ -2269,7 +2274,7 @@ class OdkParser():
         p = Paginator(all_errors, per_page)
         p_errors = p.page(cur_page)
         if sorts is not None:
-            print sorts
+            print(sorts)
 
         to_return = []
         for error in p_errors:
@@ -2309,7 +2314,7 @@ class OdkParser():
         # Return all rows from a cursor as a dict
         columns = [col[0] for col in cursor.description]
         return [
-            dict(zip(columns, row))
+            dict(list(zip(columns, row)))
             for row in cursor.fetchall()
         ]
 
@@ -2387,7 +2392,7 @@ class OdkParser():
         p = Paginator(all_forms, per_page)
         p_forms = p.page(cur_page)
         if sorts is not None:
-            print sorts
+            print(sorts)
 
         to_return = []
         for frm in p_forms:
@@ -2470,7 +2475,7 @@ class OdkParser():
         return False, cur_form
 
     def save_form_details(self, request):
-        print request.POST
+        print(request.POST)
         try:
             form_id = int(request.POST['form_id'])
             form = ODKForm.objects.get(form_id=form_id)
@@ -2510,7 +2515,7 @@ class OdkParser():
         p = Paginator(all_groups, per_page)
         f_groups = p.page(cur_page)
         if sorts is not None:
-            print sorts
+            print(sorts)
 
         to_return = []
         for grp in f_groups:
