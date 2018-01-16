@@ -1,5 +1,7 @@
-from terminal_output import Terminal
+from __future__ import absolute_import
+from .terminal_output import Terminal
 from pyexcelerate import Workbook
+import six
 
 terminal = Terminal()
 
@@ -16,7 +18,7 @@ class ExcelWriter():
 
         self.wb = Workbook()
         # order the fields for proper display
-        for sheet_name, sheet_fields in structure.iteritems():
+        for sheet_name, sheet_fields in six.iteritems(structure):
             self.sorted_sheet_fields[sheet_name] = self.order_fields(sheet_fields)
 
         self.pending_processing['main'] = {'data': data, 'is_processed': False}
@@ -25,9 +27,9 @@ class ExcelWriter():
         # It is sometimes tempting to change a list while you are looping over it;
         # however, it is often simpler and safer to create a new list instead
         # so lets not change the list while iterating
-        while len(self.pending_processing.keys()) != 0:
+        while len(list(self.pending_processing.keys())) != 0:
             all_processed = True
-            for sheet_name, data in self.pending_processing.iteritems():
+            for sheet_name, data in six.iteritems(self.pending_processing):
                 if data['is_processed'] is False:
                     terminal.tprint('Processing ' + sheet_name, 'okblue')
                     all_processed = False

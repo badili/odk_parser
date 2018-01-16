@@ -1,4 +1,5 @@
 
+from __future__ import print_function
 class bcolors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -41,4 +42,4 @@ class Terminal():
         elif msg_type == 'error':
             tcolor = bcolors.FAIL
 
-        print tcolor + message + bcolors.ENDC
+        print(tcolor + message + bcolors.ENDC)
