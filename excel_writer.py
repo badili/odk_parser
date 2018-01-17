@@ -1,14 +1,24 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
+
+import six
+# import sys
+import os
+import csv
+
 from .terminal_output import Terminal
 from pyexcelerate import Workbook
-import six
 
 terminal = Terminal()
+# reload(sys)
+# sys.setdefaultencoding('utf8')
 
 
 class ExcelWriter():
-    def __init__(self, workbook_name):
+    def __init__(self, workbook_name, this_format='xlsx', directory='./'):
         self.wb_name = workbook_name
+        self.format = this_format
+        self.save_dir = directory
         self.pending_processing = {}
         self.pending_processing_tmp = {}
         self.sorted_sheet_fields = {}
@@ -41,7 +51,8 @@ class ExcelWriter():
             if all_processed is True:
                 break
 
-        self.wb.save(self.wb_name)
+        if self.format == 'xlsx':
+            self.wb.save(self.wb_name)
         return False
 
     def process_and_write(self, data, sheet_name):
@@ -73,8 +84,18 @@ class ExcelWriter():
             cur_records.append(this_record)
 
         # now lets do a batch write of our data
-        terminal.tprint("\tBatch writing of " + sheet_name, 'ok')
-        self.wb.new_sheet(sheet_name, data=cur_records)
+        # terminal.tprint("\tBatch writing of " + sheet_name, 'ok')
+        # terminal.tprint(json.dumps(cur_records), 'warn')
+        if self.format == 'xlsx':
+            self.wb.new_sheet(sheet_name, data=cur_records)
+
+        if self.format == 'csv':
+            filename = os.path.join(self.save_dir, '%s.%s' % (sheet_name, 'csv'))
+            with open(filename, "w") as f:
+                terminal.tprint("Saving the file %s" % filename, 'warn')
+                writer = csv.writer(f, delimiter=',', quotechar='"')
+                for row in cur_records:
+                    writer.writerow([s for s in row])
 
     def order_fields(self, fields):
         fields.sort()

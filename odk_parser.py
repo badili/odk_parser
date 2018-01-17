@@ -509,7 +509,7 @@ class OdkParser():
             terminal.tprint("Deleting '%s'" % folder_path + os.sep + filename, 'fail')
             os.unlink(folder_path + os.sep + filename)
 
-    def save_user_view(self, form_id, view_name, nodes, all_submissions, structure, form_group):
+    def save_user_view(self, form_id, view_name, nodes, all_submissions, structure, form_group, repopulate=False):
         """
         Given a view with a section of the user defined data, create a view of the selected nodes
         """
@@ -530,13 +530,14 @@ class OdkParser():
             os.makedirs(full_path)
 
         # writer = ExcelWriter(prop_view_name, 'csv', prop_view_name)
-        writer = ExcelWriter(os.path.join(full_path, '%s.csv' % prop_view_name))
+        excel_filename = os.path.join(full_path, '%s.xlsx' % prop_view_name)
+        writer = ExcelWriter(excel_filename, 'csv', full_path)
         writer.create_workbook(all_submissions, structure)
-        terminal.tprint("\tFinished creating the csv files", 'warn')
+        terminal.tprint("\tFinished creating the csv sheets '%s'" % excel_filename, 'warn')
 
         # now we have all our selected submissions as csv files, so process them
         # import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
-        import_command = "env/bin/csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
+        import_command = "env/bin/csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf8 --blanks --no-inference --insert --tables %s %s"
         terminal.tprint(import_command, 'warn')
         table_views = []
         for filename in os.listdir(full_path):
@@ -554,17 +555,16 @@ class OdkParser():
 
             filename = os.path.join(full_path, filename).encode('utf-8')
             base_name, file_extension = os.path.splitext(filename)
-            # print (base_name, file_extension)
 
             terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'okblue')
-            if file_extension == '.csv':
+            if file_extension == b'.csv':
                 cmd = import_command % (
                     settings.DATABASES['default']['DRIVER'],
                     settings.DATABASES['default']['NAME'],
                     settings.DATABASES['default']['USER'],
                     settings.DATABASES['default']['PASSWORD'],
                     table_name_hash_dig,
-                    filename,
+                    filename.decode('utf-8'),
                 )
                 terminal.tprint("\tRunning the command '%s'" % cmd, 'ok')
                 print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
@@ -572,7 +572,7 @@ class OdkParser():
                 # run commands to create primary key
                 try:
                     with connection.cursor() as cursor:
-                        logging.debug("Adding a primary ket constraint for the table '%s'" % table_name)
+                        logging.debug("Adding a primary key constraint for the table '%s'" % table_name)
                         query = "alter table %s add primary key (%s)" % (table_name_hash_dig, 'unique_id')
                         cursor.execute(query)
 
@@ -592,10 +592,10 @@ class OdkParser():
                             cursor.execute(uquery)
                 except Exception as e:
                     logging.error("For some reason can't create a primary key or unique key, raise an error and delete the view")
-                    logging.error(str(e))
-                    with connection.cursor() as cursor:
-                        dquery = "drop table %s" % table_name_hash_dig
-                        cursor.execute(dquery)
+                    terminal.tprint(str(e), 'fail')
+                    # with connection.cursor() as cursor:
+                    #     dquery = "drop table %s" % table_name_hash_dig
+                    #     cursor.execute(dquery)
                     sentry.captureException()
                     raise Exception("For some reason I can't create a primary key or unique key for the table %s. Deleting it entirely" % table_name)
 
@@ -603,13 +603,36 @@ class OdkParser():
 
         # clean up process
         # delete the generated files
-        self.delete_folder_contents(full_path)
-        os.rmdir(full_path)
+        # self.delete_folder_contents(full_path)
+        # os.rmdir(full_path)
 
         form_view = FormViews.objects.filter(view_name=view_name)
         odk_form = ODKForm.objects.get(form_id=form_id)
+        if repopulate and form_view.count() > 0:
+            # save the view overwriting what was there previously if
+            # asked to repopulate
+            # Delete the existing view with the given view_name
+            # existing_form_view = FormViews.objects.filter(view_name=view_name)
+            # existing_form_view.delete()
+            # logger.error(existing_form_view)
 
-        if form_view.count() == 0:
+            # form_view = FormViews(
+            #     form=odk_form,
+            #     view_name=view_name,
+            #     proper_view_name=prop_view_name,
+            #     structure=nodes
+            # )
+            # form_view.publish()
+            #
+            # # save these submissions to the database
+            # for submission in all_submissions:
+            #     new_submission = ViewsData(
+            #         view=form_view,
+            #         raw_data=submission
+            #     )
+            #     new_submission.publish()
+            pass
+        elif form_view.count() == 0:
             # save the new view
             form_view = FormViews(
                 form=odk_form,
@@ -632,13 +655,17 @@ class OdkParser():
             # return
 
         # add the tables to the lookup table of views
+        form_view = FormViews.objects.get(view_name=view_name)
         for view in table_views:
-            cur_view = ViewTablesLookup(
-                view=form_view,
-                table_name=view['table_name'],
-                hashed_name=view['hashed_name']
-            )
-            cur_view.publish()
+            existing_view_lookup = ViewTablesLookup.objects.filter(
+                view=form_view)
+            if existing_view_lookup.count() == 0:
+                cur_view = ViewTablesLookup(
+                    view=form_view,
+                    table_name=view['table_name'],
+                    hashed_name=view['hashed_name']
+                )
+                cur_view.publish()
 
     def formulate_view_name(self, view_name, form_group):
         """
