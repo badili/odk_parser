@@ -541,10 +541,10 @@ class OdkParser():
         terminal.tprint(import_command, 'warn')
         table_views = []
         for filename in os.listdir(full_path):
-            terminal.tprint(filename, 'fail')
             if filename == '.' or filename == '..':
                 continue
 
+            terminal.tprint("Processing the file '%s'" % filename, 'fail')
             basename = os.path.splitext(filename)[0]
             table_name = '%s_%s' % (prop_view_name, basename)
             table_name_hash = hashlib.md5(table_name.encode('utf-8'))
@@ -566,11 +566,11 @@ class OdkParser():
                     table_name_hash_dig,
                     filename.decode('utf-8'),
                 )
-                terminal.tprint("\tRunning the command '%s'" % cmd, 'ok')
-                print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
 
-                # run commands to create primary key
                 try:
+                    terminal.tprint("\tRunning the command '%s'" % cmd, 'ok')
+                    # run commands to create primary key
+                    print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
                     with connection.cursor() as cursor:
                         logging.debug("Adding a primary key constraint for the table '%s'" % table_name)
                         query = "alter table %s add primary key (%s)" % (table_name_hash_dig, 'unique_id')
@@ -593,22 +593,73 @@ class OdkParser():
                 except Exception as e:
                     logging.error("For some reason can't create a primary key or unique key, raise an error and delete the view")
                     terminal.tprint(str(e), 'fail')
-                    # with connection.cursor() as cursor:
-                    #     dquery = "drop table %s" % table_name_hash_dig
-                    #     cursor.execute(dquery)
+                    with connection.cursor() as cursor:
+                        dquery = "drop table %s" % table_name_hash_dig
+                        cursor.execute(dquery)
                     sentry.captureException()
                     raise Exception("For some reason I can't create a primary key or unique key for the table %s. Deleting it entirely" % table_name)
 
                 table_views.append({'table_name': table_name, 'hashed_name': table_name_hash_dig})
 
-        # clean up process
-        # delete the generated files
-        # self.delete_folder_contents(full_path)
-        # os.rmdir(full_path)
+        # add the tables to the lookup table of views
+        try:
+            print (view_name)
+            form_view = FormViews.objects.filter(view_name=view_name)
+            odk_form = ODKForm.objects.get(form_id=form_id)
+            if form_view.count() == 0:
+                # save the new view
+                form_view = FormViews(
+                    form=odk_form,
+                    view_name=view_name,
+                    proper_view_name=prop_view_name,
+                    structure=nodes
+                )
+                form_view.publish()
+            elif repopulate:
+                # we already have the saved view, need to repopulate the data
+                pass
 
-        form_view = FormViews.objects.filter(view_name=view_name)
-        odk_form = ODKForm.objects.get(form_id=form_id)
-        if repopulate and form_view.count() > 0:
+            form_view = FormViews.objects.get(view_name=view_name)
+
+            # save these submissions to the database
+            terminal.tprint("\tSaving the views extracted submissions", 'okblue')
+            for submission in all_submissions:
+                new_submission = ViewsData(
+                    view=form_view,
+                    raw_data=submission
+                )
+                new_submission.publish()
+
+            # now save the created views
+            for view in table_views:
+                terminal.tprint("\tSaving the view lookup table '%s'" % view, 'warn')
+                existing_view_lookup = ViewTablesLookup.objects.filter(hashed_name=view['hashed_name'])
+                if existing_view_lookup.count() == 0:
+                    cur_view = ViewTablesLookup(
+                        view=form_view,
+                        table_name=view['table_name'],
+                        hashed_name=view['hashed_name']
+                    )
+                    cur_view.publish()
+
+            # clean up process
+            # delete the generated files
+            self.delete_folder_contents(full_path)
+            os.rmdir(full_path)
+        except Exception as e:
+            terminal.tprint(str(e), 'fail')
+            sentry.captureException()
+
+            # lets delete the created tables
+            terminal.tprint('\tClean up on error', 'okblue')
+            with connection.cursor() as cursor:
+                for view in table_views:
+                    terminal.tprint("\t\tDrop table '%s'" % view['table_name_hash_dig'], 'okblue')
+                    dquery = "drop table %s" % view.table_name_hash_dig
+                    cursor.execute(dquery)
+
+        
+        # if repopulate and form_view.count() > 0:
             # save the view overwriting what was there previously if
             # asked to repopulate
             # Delete the existing view with the given view_name
@@ -631,41 +682,11 @@ class OdkParser():
             #         raw_data=submission
             #     )
             #     new_submission.publish()
-            pass
-        elif form_view.count() == 0:
-            # save the new view
-            form_view = FormViews(
-                form=odk_form,
-                view_name=view_name,
-                proper_view_name=prop_view_name,
-                structure=nodes
-            )
-            form_view.publish()
-
-            # save these submissions to the database
-            for submission in all_submissions:
-                new_submission = ViewsData(
-                    view=form_view,
-                    raw_data=submission
-                )
-                new_submission.publish()
-        else:
-            logger.error("Duplicate view name '%s'. Can't save." % view_name)
+            # pass
+        # else:
+        #     logger.error("Duplicate view name '%s'. Can't save." % view_name)
             # raise Exception("Duplicate view name '%s'. Can't save." % view_name)
             # return
-
-        # add the tables to the lookup table of views
-        form_view = FormViews.objects.get(view_name=view_name)
-        for view in table_views:
-            existing_view_lookup = ViewTablesLookup.objects.filter(
-                view=form_view)
-            if existing_view_lookup.count() == 0:
-                cur_view = ViewTablesLookup(
-                    view=form_view,
-                    table_name=view['table_name'],
-                    hashed_name=view['hashed_name']
-                )
-                cur_view.publish()
 
     def formulate_view_name(self, view_name, form_group):
         """
