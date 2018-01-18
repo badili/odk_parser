@@ -536,74 +536,13 @@ class OdkParser():
         terminal.tprint("\tFinished creating the csv sheets '%s'" % excel_filename, 'warn')
 
         # now we have all our selected submissions as csv files, so process them
-        # import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
-        import_command = "env/bin/csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf8 --blanks --no-inference --insert --tables %s %s"
-        terminal.tprint(import_command, 'warn')
-        table_views = []
-        for filename in os.listdir(full_path):
-            if filename == '.' or filename == '..':
-                continue
-
-            terminal.tprint("Processing the file '%s'" % filename, 'fail')
-            basename = os.path.splitext(filename)[0]
-            table_name = '%s_%s' % (prop_view_name, basename)
-            table_name_hash = hashlib.md5(table_name.encode('utf-8'))
-            terminal.tprint("Hashed the table name '%s'" % table_name, 'warn')
-            table_name_hash_dig = "v_%s" % table_name_hash.hexdigest()
-            # print (table_name_hash_dig)
-            terminal.tprint("Hashed the table name '%s' to '%s'" % (table_name, table_name_hash_dig), 'warn')
-
-            filename = os.path.join(full_path, filename).encode('utf-8')
-            base_name, file_extension = os.path.splitext(filename)
-
-            terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'okblue')
-            if file_extension == b'.csv':
-                cmd = import_command % (
-                    settings.DATABASES['default']['DRIVER'],
-                    settings.DATABASES['default']['NAME'],
-                    settings.DATABASES['default']['USER'],
-                    settings.DATABASES['default']['PASSWORD'],
-                    table_name_hash_dig,
-                    filename.decode('utf-8'),
-                )
-
-                try:
-                    terminal.tprint("\tRunning the command '%s'" % cmd, 'ok')
-                    # run commands to create primary key
-                    print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
-                    with connection.cursor() as cursor:
-                        logging.debug("Adding a primary key constraint for the table '%s'" % table_name)
-                        query = "alter table %s add primary key (%s)" % (table_name_hash_dig, 'unique_id')
-                        cursor.execute(query)
-
-                        # if table name has a main on it, it must have a _uuid field which should be unique
-                        if re.search("main$", table_name) is not None:
-                            # this is finicky, omit it for now
-                            terminal.tprint("Not adding a unique constraint for column '_uuid'", 'fail')
-                            # logging.debug("Adding unique constraint '%s' for the table '%s'" % ('_uuid', table_name))
-                            # uquery = "alter table %s add constraint %s_%s unique (%s)" % (table_name_hash_dig, table_name_hash_dig, 'uuid', '_uuid')
-                            # cursor.execute(uquery)
-                        else:
-                            # for the other tables, add an index to top_id
-                            logging.debug("Adding indexes to '%s' and '%s' for the table '%s'" % ('top_id', 'parent_id', table_name))
-                            uquery = "create index %s_%s on %s (%s)" % (table_name_hash_dig, 'top_id', table_name_hash_dig, 'top_id')
-                            cursor.execute(uquery)
-                            uquery = "create index %s_%s on %s (%s)" % (table_name_hash_dig, 'parent_id', table_name_hash_dig, 'parent_id')
-                            cursor.execute(uquery)
-                except Exception as e:
-                    logging.error("For some reason can't create a primary key or unique key, raise an error and delete the view")
-                    terminal.tprint(str(e), 'fail')
-                    with connection.cursor() as cursor:
-                        dquery = "drop table %s" % table_name_hash_dig
-                        cursor.execute(dquery)
-                    sentry.captureException()
-                    raise Exception("For some reason I can't create a primary key or unique key for the table %s. Deleting it entirely" % table_name)
-
-                table_views.append({'table_name': table_name, 'hashed_name': table_name_hash_dig})
+        try:
+            table_views = self.save_csvs_to_database(full_path, prop_view_name)
+        except Exception:
+            raise
 
         # add the tables to the lookup table of views
         try:
-            print (view_name)
             form_view = FormViews.objects.filter(view_name=view_name)
             odk_form = ODKForm.objects.get(form_id=form_id)
             if form_view.count() == 0:
@@ -615,9 +554,12 @@ class OdkParser():
                     structure=nodes
                 )
                 form_view.publish()
-            elif repopulate:
+            elif form_view.count() > 0 and repopulate:
                 # we already have the saved view, need to repopulate the data
                 pass
+            else:
+                # we have a duplicate form view
+                raise ValueError("The view '%s' is already saved and we are not repopulating the data!" % view_name)
 
             form_view = FormViews.objects.get(view_name=view_name)
 
@@ -658,7 +600,6 @@ class OdkParser():
                     dquery = "drop table %s" % view.table_name_hash_dig
                     cursor.execute(dquery)
 
-        
         # if repopulate and form_view.count() > 0:
             # save the view overwriting what was there previously if
             # asked to repopulate
@@ -687,6 +628,80 @@ class OdkParser():
         #     logger.error("Duplicate view name '%s'. Can't save." % view_name)
             # raise Exception("Duplicate view name '%s'. Can't save." % view_name)
             # return
+
+    def save_csvs_to_database(self, full_path, prop_view_name):
+        # import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
+        import_command = "env/bin/csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf8 --blanks --no-inference --insert --tables %s %s"
+        terminal.tprint(import_command, 'warn')
+        table_views = []
+        for filename in os.listdir(full_path):
+            if filename == '.' or filename == '..':
+                continue
+
+            terminal.tprint("Processing the file '%s'" % filename, 'fail')
+            basename = os.path.splitext(filename)[0]
+            table_name = '%s_%s' % (prop_view_name, basename)
+            table_name_hash = hashlib.md5(table_name.encode('utf-8'))
+            terminal.tprint("Hashed the table name '%s'" % table_name, 'warn')
+            table_name_hash_dig = "v_%s" % table_name_hash.hexdigest()
+            # print (table_name_hash_dig)
+            terminal.tprint("Hashed the table name '%s' to '%s'" % (table_name, table_name_hash_dig), 'warn')
+
+            filename = os.path.join(full_path, filename).encode('utf-8')
+            base_name, file_extension = os.path.splitext(filename)
+
+            terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'okblue')
+            if file_extension == b'.csv':
+                cmd = import_command % (
+                    settings.DATABASES['default']['DRIVER'],
+                    settings.DATABASES['default']['NAME'],
+                    settings.DATABASES['default']['USER'],
+                    settings.DATABASES['default']['PASSWORD'],
+                    table_name_hash_dig,
+                    filename.decode('utf-8'),
+                )
+
+                try:
+                    terminal.tprint("\tRunning the command '%s'" % cmd, 'ok')
+                    # run commands to create primary key
+                    print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
+                except Exception as e:
+                    terminal.tprint(str(e), 'fail')
+                    sentry.captureException()
+                    raise Exception("Error while converting the csv file '%s' to a table '%s'." % (filename, table_name))
+
+                try:
+                    with connection.cursor() as cursor:
+                        logging.debug("Adding a primary key constraint for the table '%s'" % table_name)
+                        query = "alter table %s add primary key (%s)" % (table_name_hash_dig, 'unique_id')
+                        cursor.execute(query)
+
+                        # if table name has a main on it, it must have a _uuid field which should be unique
+                        if re.search("main$", table_name) is not None:
+                            # this is finicky, omit it for now
+                            terminal.tprint("Not adding a unique constraint for column '_uuid'", 'fail')
+                            # logging.debug("Adding unique constraint '%s' for the table '%s'" % ('_uuid', table_name))
+                            # uquery = "alter table %s add constraint %s_%s unique (%s)" % (table_name_hash_dig, table_name_hash_dig, 'uuid', '_uuid')
+                            # cursor.execute(uquery)
+                        else:
+                            # for the other tables, add an index to top_id
+                            logging.debug("Adding indexes to '%s' and '%s' for the table '%s'" % ('top_id', 'parent_id', table_name))
+                            uquery = "create index %s_%s on %s (%s)" % (table_name_hash_dig, 'top_id', table_name_hash_dig, 'top_id')
+                            cursor.execute(uquery)
+                            uquery = "create index %s_%s on %s (%s)" % (table_name_hash_dig, 'parent_id', table_name_hash_dig, 'parent_id')
+                            cursor.execute(uquery)
+                except Exception as e:
+                    logging.error("For some reason can't create a primary key or unique key, raise an error and delete the view")
+                    terminal.tprint(str(e), 'fail')
+                    with connection.cursor() as cursor:
+                        dquery = "drop table %s" % table_name_hash_dig
+                        cursor.execute(dquery)
+                    sentry.captureException()
+                    raise Exception("For some reason I can't create a primary key or unique key for the table %s. Deleting it entirely" % table_name)
+
+                table_views.append({'table_name': table_name, 'hashed_name': table_name_hash_dig})
+
+        return table_views
 
     def formulate_view_name(self, view_name, form_group):
         """
@@ -725,6 +740,10 @@ class OdkParser():
         Raises:
             Exception: Description
         """
+
+        form_view = FormViews.objects.filter(view_name=view_name)
+        if form_view.count() > 0 and update_local_data is False:
+            raise Exception("The view '%s' is already saved!" % view_name)
 
         associated_forms = []
         try:
@@ -783,7 +802,7 @@ class OdkParser():
         # check if there is need to create a database view of this data
         if download_type == 'download_save':
             try:
-                self.save_user_view(form_id, view_name, nodes, all_submissions, self.output_structure, form_group.group_name)
+                self.save_user_view(form_id, view_name, nodes, all_submissions, self.output_structure, form_group.group_name, update_local_data)
             except Exception as e:
                 sentry.captureException()
                 return {'is_downloadable': False, 'error': True, 'message': str(e)}
@@ -1714,10 +1733,11 @@ class OdkParser():
         # terminal.tprint(json.dumps(all_nodes), 'fail')
         if submissions is not None:
             terminal.tprint('\tWe have a list of submissions that we need to process manually', 'okblue')
-            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, submissions, not is_dry_run, is_dry_run)
+            # form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True
+            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, submissions, False, is_dry_run)
             terminal.tprint(json.dumps(all_instances), 'warn')
         else:
-            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, None, not is_dry_run, is_dry_run)
+            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, None, False, is_dry_run)
 
         terminal.tprint('\tTotal submissions fetched %d' % len(all_instances), 'okblue')
 
@@ -2600,3 +2620,13 @@ class OdkParser():
         except Exception as e:
             terminal.tprint(str(e), 'fail')
             return True, 'There was an error while saving the group settings'
+
+    def refresh_view_data(self, request):
+        try:
+            added_records = 0
+
+            return False, 'Successful refresh. %d records were added to the saved view' % added_records
+        except Exception as e:
+            terminal.tprint(str(e), 'fail')
+            sentry.captureException()
+            return True, 'Refresh Failed! %s' % str(e)
