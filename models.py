@@ -1,5 +1,55 @@
+from django.contrib.auth.models import User
+from django.contrib.postgres.fields import JSONField
 from django.db import models
-from jsonfield import JSONField
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from easy_thumbnails.fields import ThumbnailerImageField
+from django.conf import settings
+
+
+class Profile(models.Model):
+    """
+    The Profile class that adds attributes to the default auth user.
+    """
+    # Remove the base_dir from the profile photo directory
+    profile_photo_dir = settings.PROFILE_PHOTO_DIR
+    base_dir = settings.BASE_DIR
+    profile_photo_dir = profile_photo_dir.replace(base_dir + '/', '').strip()
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    photo = ThumbnailerImageField(upload_to=profile_photo_dir, blank=True)
+    salutation = models.CharField(max_length=20, blank=True, default='Dear')
+    phone = models.CharField(max_length=20, blank=True, default='')
+    city = models.CharField(max_length=60, default='', blank=True)
+    country = models.CharField(max_length=100, default='', blank=True)
+    organization = models.CharField(max_length=100, default='', blank=True)
+    bio = models.TextField(max_length=100, default='', blank=True)
+    profession = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        verbose_name = 'profile'
+        verbose_name_plural = 'profiles'
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            try:
+                p = Profile.objects.get(user=self.user)
+                self.pk = p.pk
+            except Profile.DoesNotExist:
+                pass
+
+        super(Profile, self).save(*args, **kwargs)
+
+    def __str__(self):
+        return self.user.username
+
+
+@receiver(post_save, sender=User)
+def create_or_update_user_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.create(user=instance)
+    instance.profile.save()
 
 
 class BaseTable(models.Model):
@@ -11,6 +61,18 @@ class BaseTable(models.Model):
 
     class Meta:
         abstract = True
+
+
+class GeneralPermissions(models.Model):
+    """
+    A class to enable me add permissions not tied to any model.
+    """
+
+    class Meta:
+        permissions = (
+            ('view_analysis', 'View Analysis'),
+            ('view_gallery', 'Can view gallery')
+        )
 
 
 class Model(BaseTable):
@@ -88,6 +150,10 @@ class ODKForm(BaseTable):
 
     class Meta:
         db_table = 'odkform'
+        permissions = (
+            ('view_odk_form', 'View ODKForm'),
+            ('download_odk_form', 'Download ODKForm')
+        )
 
     def publish(self):
         self.save()
@@ -107,6 +173,10 @@ class RawSubmissions(BaseTable):
 
     class Meta:
         db_table = 'raw_submissions'
+        permissions = (
+            ('view_raw_submissions', 'View RawSubmissions'),
+            ('download_raw_submissions', 'Download RawSubmissions')
+        )
 
     def publish(self):
         self.save()
@@ -124,6 +194,10 @@ class FormViews(BaseTable):
 
     class Meta:
         db_table = 'form_views'
+        permissions = (
+            ('view_form_views', 'View FormViews'),
+            ('download_form_views', 'Download FormViews')
+        )
 
     def publish(self):
         self.save()
@@ -199,6 +273,25 @@ class DictionaryItems(BaseTable):
 
     def get_id(self):
         return self.t_key
+
+
+class Country(models.Model):
+    """
+    This model holds information for a given country such as, population,
+    population or map polygon.
+    """
+    id = models.AutoField(primary_key=True)
+    iso_code = models.CharField(max_length=10)
+    name = models.CharField(max_length=50)
+    polygon = models.TextField()
+    center_lat = models.FloatField()
+    center_long = models.FloatField()
+    
+    def __repr__(self):
+        return "Country <{}>".format(self.name)
+
+    def __str__(self):
+        return self.name
 
 
 class FormMappings(BaseTable):
