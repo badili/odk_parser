@@ -632,29 +632,40 @@ class OdkParser():
             # return
 
     def save_csvs_to_database(self, full_path, prop_view_name, repopulate):
-        is_create_table = '--no-create' if repopulate else ''
-
         # import_command = "csvsql --db 'postgresql:///%s?user=%s&password=%s' --encoding utf-8 --blanks --insert --tables %s %s"
         import_command = "env/bin/csvsql --db '%s:///%s?user=%s&password=%s' --encoding utf8 --blanks %s --no-inference --insert --tables %s %s"
         terminal.tprint(import_command, 'warn')
         table_views = []
         for filename in os.listdir(full_path):
-            if filename == '.' or filename == '..':
+            if filename == '.' or filename == '..' or re.match('^_', filename):
                 continue
 
-            terminal.tprint("Processing the file '%s'" % filename, 'fail')
+            terminal.tprint("Processing the file '%s'" % filename, 'okblue')
             basename = os.path.splitext(filename)[0]
             table_name = '%s_%s' % (prop_view_name, basename)
             table_name_hash = hashlib.md5(table_name.encode('utf-8'))
-            terminal.tprint("Hashed the table name '%s'" % table_name, 'warn')
+            terminal.tprint("\tHashed the table name '%s'" % table_name, 'warn')
             table_name_hash_dig = "v_%s" % table_name_hash.hexdigest()
+
+            # check if the table exists
+            try:
+                with connection.cursor() as cursor:
+                    dquery = "select * from %s" % table_name_hash_dig
+                    cursor.execute(dquery)
+                is_create_table = '--no-create' if repopulate else ''
+            except Exception as e:
+                terminal.tprint("\tNeed to create the table '%s'. It doesnt exist. \n\t'%s'" % (table_name_hash_dig, str(e)), 'okblue')
+                # we need to create the able, it doesn't exist
+                is_create_table = ''
+
             # print (table_name_hash_dig)
-            terminal.tprint("Hashed the table name '%s' to '%s'" % (table_name, table_name_hash_dig), 'warn')
+            terminal.tprint("\tHashed the table name '%s' to '%s'" % (table_name, table_name_hash_dig), 'ok')
 
             filename = os.path.join(full_path, filename).encode('utf-8')
             base_name, file_extension = os.path.splitext(filename)
 
-            terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'okblue')
+            terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'warn')
+            print (file_extension)
             if file_extension == b'.csv':
                 cmd = import_command % (
                     settings.DATABASES['default']['DRIVER'],
@@ -667,7 +678,7 @@ class OdkParser():
                 )
 
                 try:
-                    if repopulate:
+                    if repopulate and is_create_table != '':
                         # truncate the table inorder to add new data
                         with connection.cursor() as cursor:
                             dquery = "truncate table %s" % table_name_hash_dig
@@ -676,20 +687,20 @@ class OdkParser():
                     # run commands to create primary key
                     print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
                 except Exception as e:
-                    terminal.tprint(str(e), 'fail')
+                    terminal.tprint("\tError while converting the csv file '%s' to a table '%s'.\n\t%s" % (filename, table_name, str(e)), 'fail')
                     sentry.captureException()
-                    raise Exception("Error while converting the csv file '%s' to a table '%s'." % (filename, table_name))
+                    raise Exception("\tError while converting the csv file '%s' to a table '%s'." % (filename, table_name))
 
                 try:
-                    if repopulate is False:
-                        self.add_dynamic_table_keys(table_name, table_name_hash_dig, repopulate)
+                    if repopulate is False or is_create_table == '':
+                        self.add_dynamic_table_keys(table_name, table_name_hash_dig, repopulate, is_create_table)
                 except Exception:
                     raise
                 table_views.append({'table_name': table_name, 'hashed_name': table_name_hash_dig})
 
         return table_views
 
-    def add_dynamic_table_keys(self, table_name, table_name_hash_dig, repopulate):
+    def add_dynamic_table_keys(self, table_name, table_name_hash_dig, repopulate, is_create_table):
         try:
             with connection.cursor() as cursor:
                 logging.debug("Adding a primary key constraint for the table '%s'" % table_name)
@@ -713,7 +724,7 @@ class OdkParser():
         except Exception as e:
             logging.error("For some reason can't create a primary key or unique key, raise an error and delete the view")
             terminal.tprint(str(e), 'fail')
-            if repopulate is False:
+            if repopulate is False or is_create_table == '':
                 with connection.cursor() as cursor:
                     dquery = "drop table %s" % table_name_hash_dig
                     cursor.execute(dquery)
@@ -886,6 +897,9 @@ class OdkParser():
             screen_nodes.extend(form_meta)
             screen_nodes.append('unique_id')
 
+        # ensure the nodes are unique
+        screen_nodes = list(set(screen_nodes))
+
         submissions = []
         i = 0
         for data in submissions_list:
@@ -895,8 +909,16 @@ class OdkParser():
                     break
             # data, csv_files = self.post_data_processing(data)
             pk_key = self.pk_name + str(self.indexes['main'])
-            if self.determine_type(data) == 'is_json':
-                data = json.loads(data['raw_data'])
+            # terminal.tprint(self.determine_type(data), 'warn')
+            # terminal.tprint(json.dumps(data), 'warn')
+
+            if self.determine_type(data) == 'is_json' and 'raw_data' in data:
+                terminal.tprint('Is postgres db', 'okblue')
+                data = data['raw_data']
+            else:
+                terminal.tprint('Is MySQL db', 'okblue')
+                data = json.loads(data)
+
             # print data
             data['unique_id'] = pk_key
             data = self.process_node(data, 'main', screen_nodes, False)
