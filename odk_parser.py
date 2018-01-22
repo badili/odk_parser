@@ -921,7 +921,7 @@ class OdkParser():
 
             # print data
             data['unique_id'] = pk_key
-            data = self.process_node(data, 'main', screen_nodes, False)
+            data = self.process_node(data, 'main', screen_nodes, True)
 
             submissions.append(data)
             self.indexes['main'] += 1
