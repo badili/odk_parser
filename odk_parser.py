@@ -956,6 +956,13 @@ class OdkParser():
                     terminal.tprint('\tTemporarily adding %s to the nodes of interest' % clean_key, 'okblue')
                     nodes_of_interest.append(clean_key)
                 value = self.process_list(value, clean_key, node['unique_id'], nodes_of_interest, add_top_id)
+
+                if len(self.output_structure[clean_key]) == 3:
+                    # there is nothing to save from this sheet, so remove it from the structure
+                    del self.output_structure[clean_key]
+                    nodes_of_interest.remove(clean_key)
+                    continue
+
                 is_json = False
             elif val_type == 'is_json':
                 is_json = True
@@ -1045,7 +1052,7 @@ class OdkParser():
 
         return 'is_int'
 
-    def process_list(self, list, sheet_name, parent_key, nodes_of_interest, add_top_id):
+    def process_list(self, this_list, sheet_name, parent_key, nodes_of_interest, add_top_id):
         # at times the input is a string and not necessary a json object
 
         # the sheet name is where to put this subset of data
@@ -1054,7 +1061,7 @@ class OdkParser():
             self.indexes[sheet_name] = 1
 
         cur_list = []
-        for node in list:
+        for node in this_list:
             val_type = self.determine_type(node)
             node['unique_id'] = sheet_name + '_' + str(self.indexes[sheet_name])
 
