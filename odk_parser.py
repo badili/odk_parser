@@ -2481,7 +2481,8 @@ class OdkParser():
         """
         # check if there are new forms first
         self.refresh_forms()
-        all_forms = ODKForm.objects.select_related('form_group').all().values('id', 'form_id', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id')
+        all_forms = ODKForm.objects.select_related('form_group').values('id', 'form_group__group_name', 'form_id', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id')
+        # print (ODKForm.objects.select_related('form_group').values('id', 'form_group__order_index', 'form_group__group_name', 'form_id', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id').query)
         p = Paginator(all_forms, per_page)
         p_forms = p.page(cur_page)
         if sorts is not None:
@@ -2489,8 +2490,8 @@ class OdkParser():
 
         to_return = []
         for frm in p_forms:
-            # frm = model_to_dict(form)
-            # frm['group_name'] = frm.form_group__group_name
+            frm['form_group'] = frm['form_group__group_name']
+            frm['actions'] = '<button type="button" data-form_id="%s" class="edit_form btn btn-sm btn-outline btn-warning">Edit</button>' % frm['id']
             to_return.append(frm)
         return False, {'records': to_return, "queryRecordCount": p.count, "totalRecordCount": p.count}
 
@@ -2500,12 +2501,12 @@ class OdkParser():
         """
         # check if there are new forms first
         self.refresh_forms()
-        all_forms = ODKForm.objects.select_related('form_group').all().values('id', 'form_id', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id')
+        all_forms = ODKForm.objects.select_related('form_group').all().values('id', 'form_id', 'form_group__group_name', 'form_name', 'full_form_id', 'auto_update', 'is_source_deleted').order_by('id')
 
         to_return = []
         for frm in all_forms:
             # frm = model_to_dict(form)
-            # frm['group_name'] = frm.form_group__group_name
+            frm['form_group'] = frm.form_group__group_name
             to_return.append(frm)
         return to_return
 
