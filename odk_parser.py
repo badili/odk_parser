@@ -72,6 +72,22 @@ class OdkParser():
         # load the destination database
         self.load_mapped_connection()
 
+        # save the cleaners for later user
+        # @todo Save as database settings
+        self.cleaners = {
+            'c1s1q8_Country_name': {
+                '^sundan|sudan': 'Sudan',
+                '^b.*nin|ben': 'Benin',
+                '254$': 'Kenya',
+                '243$': 'D. R. Congo',
+                '^madag': 'Madagascar',
+                '233$': 'Ghana',
+                '251$': 'Ethiopia',
+                '20$': 'Egypt',
+                '258$': 'Mozambique'
+            }
+        }
+
     def load_ona_settings(self):
         # if the ona settings have been saved, load them here for later use
         ona_settings = SystemSettings.objects.filter(setting_key__contains='ona_')
@@ -948,6 +964,10 @@ class OdkParser():
                         # logger.warn('%s is not in the nodes of interest -- %s' % (clean_key, json.dumps(nodes_of_interest)))
                         continue
 
+            # Check whether there is need to clean the data. If there is need, clean it automatically
+            if clean_key in self.cleaners:
+                value = self.get_clean_data_value(self.cleaners[clean_key], value)
+
             is_json = True
 
             if val_type == 'is_list':
@@ -1093,42 +1113,14 @@ class OdkParser():
         m = re.findall("/?(\w+)$", j_key)
         return m[0]
 
-    def get_clean_country_code(self, code):
-        if self.clean_country_codes is None:
-            terminal.tprint('Adding the list of country codes', 'okblue')
-            self.clean_country_codes = {}
-
-            try:
-                # get the country codes to clean
-                country_codes = []
-                for country, c_code in country_codes:
-                    if re.search(",", c_code) is not None:
-                        c_code = c_code.split(',')
-                        for t_code in c_code:
-                            self.clean_country_codes[t_code] = country
-                    else:
-                        self.clean_country_codes[c_code] = country
-
-            except Exception as e:
-                terminal.tprint(str(e), 'fail')
-                sentry.captureException()
-                return code
-
-        # it seems we have our countries processed, just get the clean code
+    def get_clean_data_value(self, cleaners, code):
         try:
-            if code in self.clean_country_codes:
-                return self.clean_country_codes[code]
-            else:
-                for c_code, country in six.iteritems(self.clean_country_codes):
-                    if re.search(c_code, code, re.IGNORECASE) is not None:
-                        return country
+            for c_code, country in six.iteritems(cleaners):
+                if re.search(c_code, code, re.IGNORECASE) is not None:
+                    return country
 
-                # if we are still here, the code wasnt found
-                terminal.tprint("Couldn't find (%s) in the settings" % code, 'fail')
-                terminal.tprint(c_code + '--' + country, 'okblue')
-                print(self.clean_country_codes)
-                print('')
-                return code
+            # Found nothing, return original code
+            return code
         except Exception as e:
             terminal.tprint(str(e), 'fail')
             sentry.captureException()
