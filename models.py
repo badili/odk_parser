@@ -29,6 +29,7 @@ class Profile(models.Model):
 
     class Meta:
         verbose_name = 'profile'
+        db_table = 'profile'
         verbose_name_plural = 'profiles'
 
     def save(self, *args, **kwargs):
