@@ -6,7 +6,7 @@ import six
 import os
 import csv
 
-from .terminal_output import Terminal
+from vendor.terminal_output import Terminal
 from pyexcelerate import Workbook
 
 terminal = Terminal()

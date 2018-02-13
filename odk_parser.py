@@ -319,7 +319,9 @@ class OdkParser():
                 terminal.tprint("\tThe form '%s' doesn't have a saved structure, so lets fetch it and add it" % cur_form.form_name, 'warn')
                 (processed_nodes, structure) = self.get_form_structure_from_server(form_id)
                 if structure is not None:
+                    # terminal.tprint(json.dumps(structure), 'okblue')
                     cur_form.structure = structure
+                    # cur_form.structure = json.dumps(structure)
                     cur_form.processed_structure = processed_nodes
                     cur_form.publish()
                 else:
@@ -327,14 +329,17 @@ class OdkParser():
             else:
                 terminal.tprint("\tFetching the form's '%s' structure from the database" % cur_form.form_name, 'okblue')
                 processed_nodes = cur_form.processed_structure
+                m = re.findall(r"^'(.+)'$", cur_form.processed_structure)
+                processed_nodes = json.loads(m[0])
                 # force a re-extraction of the nodes
                 self.cur_node_id = 0
                 self.cur_form_id = form_id
                 self.repeat_level = 0
                 self.all_nodes = []
                 self.top_node = {"name": "Main", "label": "Top Level", "parent_id": -1, "type": "top_level", "id": 0}
-                self.top_level_hierarchy = self.extract_repeating_groups(cur_form.structure, 0)
-                # terminal.tprint(json.dumps(cur_form.structure), 'okblue')
+                m = re.findall(r"^'(.+)'$", cur_form.structure)
+                structure = json.loads(m[0])
+                self.top_level_hierarchy = self.extract_repeating_groups(structure, 0)
         except Exception as e:
             print((traceback.format_exc()))
             logger.debug(str(e))
@@ -374,6 +379,11 @@ class OdkParser():
         Process a node and get the repeating groups
         """
         cur_node = []
+        node_type = self.determine_type(nodes)
+        terminal.tprint(json.dumps(nodes), 'debug')
+        # print(nodes)
+        if node_type == 'is_string':
+            nodes = json.loads(nodes)
         for node in nodes['children']:
             if 'type' in node:
                 if 'label' in node:
@@ -792,13 +802,18 @@ class OdkParser():
         associated_forms = []
         try:
             cur_form = ODKForm.objects.get(form_id=form_id)
-            form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
+            if cur_form.form_group_id is None:
+                # we have a form not belonging to a group
+                associated_forms.append(cur_form.form_id)
+                form_name = 'No group defined'
+            else:
+                form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
 
-            # get all the form ids belonging to the same group
-            temp_forms = ODKForm.objects.filter(form_group_id=cur_form.form_group_id)
-            for t_form in temp_forms:
-                associated_forms.append(t_form.form_id)
-            form_name = form_group.group_name
+                # get all the form ids belonging to the same group
+                temp_forms = ODKForm.objects.filter(form_group_id=cur_form.form_group_id)
+                for t_form in temp_forms:
+                    associated_forms.append(t_form.form_id)
+                form_name = form_group.group_name
         except Exception as e:
             print((traceback.format_exc()))
             # there is an error getting the associated forms, so get data from just one form
@@ -886,7 +901,6 @@ class OdkParser():
         # 
 
         submissions_list = self.get_all_submissions(form_id, uuids, update_local_data)
-        # terminal.tprint(json.dumps(submissions_list), 'fail')
 
         if submissions_list is None or submissions_list.count() == 0:
             terminal.tprint("The form with id '%s' has no submissions returning as such" % str(form_id), 'fail')
@@ -930,7 +944,16 @@ class OdkParser():
 
             if self.determine_type(data) == 'is_json' and 'raw_data' in data:
                 terminal.tprint('Is postgres db', 'okblue')
+                terminal.tprint(json.dumps(data), 'okblue')
                 data = data['raw_data']
+                terminal.tprint(data, 'warn')
+                print(self.determine_type(data))
+                if (self.determine_type(data) == 'is_string'):
+                    m = re.findall(r"^'(.+)'$", data)
+                    terminal.tprint(json.dumps(m), 'okblue')
+                    data = json.loads(m[0])
+                    # data = json.loads(data)
+                terminal.tprint(json.dumps(data), 'fail')
             else:
                 terminal.tprint('Is MySQL db', 'okblue')
                 data = json.loads(data)
@@ -1774,10 +1797,10 @@ class OdkParser():
         if submissions is not None:
             terminal.tprint('\tWe have a list of submissions that we need to process manually', 'okblue')
             # form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True
-            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, submissions, False, is_dry_run)
+            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, submissions, True, is_dry_run)
             terminal.tprint(json.dumps(all_instances), 'warn')
         else:
-            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, None, False, is_dry_run)
+            all_instances = self.fetch_merge_data(odk_form['form_id'], all_nodes, None, 'submissions', None, None, True, is_dry_run)
 
         terminal.tprint('\tTotal submissions fetched %d' % len(all_instances), 'okblue')
 
@@ -2590,7 +2613,6 @@ class OdkParser():
         return False, cur_form
 
     def save_form_details(self, request):
-        print(request.POST)
         try:
             form_id = int(request.POST['form_id'])
             form = ODKForm.objects.get(form_id=form_id)
