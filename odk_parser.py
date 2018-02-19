@@ -837,11 +837,12 @@ class OdkParser():
             try:
                 this_submissions = self.get_form_submissions_as_json(int(form_id), nodes, uuids, update_local_data, is_dry_run)
             except Exception as e:
-                logging.debug(traceback.format_exc())
-                logging.error(str(e))
+                # logging.debug(traceback.format_exc())
+                # logging.error(str(e))
                 terminal.tprint(str(e), 'fail')
                 sentry.captureException()
-                raise Exception(str(e))
+                # raise Exception(str(e))
+                continue
 
             if this_submissions is None:
                 continue
@@ -861,7 +862,9 @@ class OdkParser():
         # check if there is need to create a database view of this data
         if download_type == 'download_save' or update_local_data:
             try:
-                self.save_user_view(form_id, view_name, nodes, all_submissions, self.output_structure, form_group.group_name, update_local_data)
+                # save the view if we have a view_name
+                if view_name is not None:
+                    self.save_user_view(form_id, view_name, nodes, all_submissions, self.output_structure, form_group.group_name, update_local_data)
             except Exception as e:
                 sentry.captureException()
                 return {'is_downloadable': False, 'error': True, 'message': str(e)}
@@ -943,19 +946,19 @@ class OdkParser():
             # terminal.tprint(json.dumps(data), 'warn')
 
             if self.determine_type(data) == 'is_json' and 'raw_data' in data:
-                terminal.tprint('Is postgres db', 'okblue')
-                terminal.tprint(json.dumps(data), 'okblue')
+                # terminal.tprint('Is postgres db', 'okblue')
+                # terminal.tprint(json.dumps(data), 'okblue')
                 data = data['raw_data']
-                terminal.tprint(data, 'warn')
-                print(self.determine_type(data))
+                # terminal.tprint(data, 'warn')
+                # print(self.determine_type(data))
                 if (self.determine_type(data) == 'is_string'):
                     m = re.findall(r"^'(.+)'$", data)
-                    terminal.tprint(json.dumps(m), 'okblue')
+                    # terminal.tprint(json.dumps(m), 'okblue')
                     data = json.loads(m[0])
                     # data = json.loads(data)
-                terminal.tprint(json.dumps(data), 'fail')
+                # terminal.tprint(json.dumps(data), 'fail')
             else:
-                terminal.tprint('Is MySQL db', 'okblue')
+                # terminal.tprint('Is MySQL db', 'okblue')
                 data = json.loads(data)
 
             # print data
@@ -996,7 +999,7 @@ class OdkParser():
             if val_type == 'is_list':
                 # temporarily add the current clean_key to the nodes of interest, to see if there is hidden data in the current node
                 if clean_key not in nodes_of_interest:
-                    terminal.tprint('\tTemporarily adding %s to the nodes of interest' % clean_key, 'okblue')
+                    # terminal.tprint('\tTemporarily adding %s to the nodes of interest' % clean_key, 'okblue')
                     nodes_of_interest.append(clean_key)
                 value = self.process_list(value, clean_key, node['unique_id'], nodes_of_interest, add_top_id)
 
@@ -1598,7 +1601,7 @@ class OdkParser():
                         # add to the list of actual data points
                         actual_data_nodes[mapping['form_question']] = mapping['dest_column_name']
 
-                    terminal.tprint(json.dumps(cur_table_group), 'ok')
+                    # terminal.tprint(json.dumps(cur_table_group), 'ok')
                     terminal.tprint("\t\t\tFound an instance(%s-%s) where multiple data sources are saved in one table field(%s)'" % (json.dumps(cur_table_group['columns'][mapping['dest_column_name']]['sources']), mapping['form_question'], mapping['dest_column_name']), 'okblue')
                     # we have a scenario where 2 data sources are being saved in one table field
                     cur_table_group['columns'][mapping['dest_column_name']]['has_multiple_sources'] = True
@@ -1804,6 +1807,9 @@ class OdkParser():
 
         terminal.tprint('\tTotal submissions fetched %d' % len(all_instances), 'okblue')
 
+        if not isinstance(all_instances, list):
+            terminal.tprint(json.dumps(all_instances), 'okblue')
+
         is_error = False
         i = 0
         terminal.tprint("\n\nBase preparations are done, now lets save the data for the form group '%s'" % form_group.group_name, 'warn')
@@ -1817,6 +1823,8 @@ class OdkParser():
 
                 transaction.set_autocommit(False)
                 try:
+                    if not isinstance(cur_instance, tuple):
+                        terminal.tprint(json.dumps(cur_instance), 'warn')
                     self.save_instance_data(cur_instance, is_dry_run)
                 except ValueError as e:
                     comments.append('Value Error: %s' % str(e))
@@ -1915,7 +1923,7 @@ class OdkParser():
             cur_dataset[table] = formatted
 
             for nodes_data in formatted:
-                # terminal.tprint('\t%s: %s' % (table, json.dumps(cur_group)), 'warn')
+                # terminal.tprint('\tNodes: %s' % json.dumps(nodes_data), 'warn')
                 try:
                     (data_points, dup_data_points) = self.populate_query(cur_group, nodes_data, data['instanceID'])
                     cursor = connections['mapped'].cursor()
@@ -1948,12 +1956,14 @@ class OdkParser():
                             sentry.captureException()
                             raise
 
-                    terminal.tprint("\tThe instance '%s' has been processed successfully" % data['instanceID'], 'ok')
+                        # terminal.tprint('\t%s' % final_query, 'ok')
                 except Exception as e:
                     terminal.tprint('\tError (%s) while testing the queries' % str(e), 'fail')
+                    # terminal.tprint('\t%s' % final_query, 'okblue')
                     self.create_error_log_entry('data_error', str(e), data['instanceID'], None)
                     sentry.captureException()
                     raise
+            terminal.tprint("\tThe instance '%s' has been processed successfully" % data['instanceID'], 'ok')
 
         return
 
@@ -1961,25 +1971,30 @@ class OdkParser():
         formatted = []
         this_node = {}
         found_lists = []
-        for cur_node in haystack.keys():
-            if cur_node in data_points:
-                this_node[cur_node] = haystack[cur_node]
-            elif isinstance(haystack[cur_node], list) is True:
-                cur_list = self.extract_data_from_list(haystack[cur_node], data_points)
-                # terminal.tprint(json.dumps(cur_list), 'okblue')
-                if len(cur_list) != 0:
-                    found_lists.append(cur_list)
+        try:
+            for cur_node in haystack.keys():
+                if cur_node in data_points:
+                    this_node[cur_node] = haystack[cur_node]
+                elif isinstance(haystack[cur_node], list) is True:
+                    cur_list = self.extract_data_from_list(haystack[cur_node], data_points)
+                    # terminal.tprint(json.dumps(cur_list), 'okblue')
+                    if len(cur_list) != 0:
+                        found_lists.append(cur_list)
 
-        if len(found_lists) != 0:
-            for lists in found_lists:
-                for cur_list in lists:
-                    new_node = this_node.copy()
-                    new_node.update(cur_list)
-                    formatted.append(new_node)
-        else:
-            formatted.append(this_node)
+            if len(found_lists) != 0:
+                for lists in found_lists:
+                    for cur_list in lists:
+                        new_node = this_node.copy()
+                        new_node.update(cur_list)
+                        formatted.append(new_node)
+            else:
+                formatted.append(this_node)
 
-        return formatted
+            return formatted
+        except AttributeError as e:
+            terminal.tprint('\tIncorrect data sent: %s' % str(e), 'fail')
+            terminal.tprint('\t%s' % json.dumps(haystack), 'fail')
+            return []
 
     def extract_data_from_list(self, haystack, data_points):
         all_nodes = []
@@ -2065,6 +2080,11 @@ class OdkParser():
                                 # For selects, we shall have a full lookup table with attribute_value as NULL
                                 # For others, we have a partial lookup table where parent_node in the dictionary as NULL and attribute value from the questionnaire
                                 if dict_info['is_a_select'] is True:
+                                    if dict_info['odk_node'] not in q_data:
+                                        # we expect to save the selected value, but for some reason it is not there, continue....
+                                        mssg = "\tI couldn't find the entered data for column '%s:%s'. The linkage cannot happen." % (dict_info['form_group'], dict_info['odk_node'])
+                                        self.create_error_log_entry('data_error', mssg, instanceID, None)
+                                        continue
                                     query_vals = [dict_info['form_group'], dict_info['odk_node'], q_data[dict_info['odk_node']]]
                                 else:
                                     query_vals = [dict_info['form_group'], dict_info['odk_node']]
@@ -2164,11 +2184,7 @@ class OdkParser():
                         node_data = None
                     else:
                         mssg = "I can't find the data for the variable '%s' in '%s'" % (odk_source_qst, json.dumps(q_data))
-                        terminal.tprint(mssg, 'fail')
-                        sentry.user_context({
-                            'variable': odk_source_qst, 'json_data': q_data
-                        })
-                        raise Exception(mssg)
+                        raise ValueError(mssg)
 
             # Append the found node data
             data_points[col] = node_data
@@ -2182,7 +2198,7 @@ class OdkParser():
         if len(linked_nodes) != 0:
             # terminal.tprint('\Companion data: %s' % json.dumps(corresponding_data), 'fail')
             no_occurences = list(data_points.values()).count('place_holder')
-            iterations = len(linked_nodes) / no_occurences
+            iterations = int(len(linked_nodes) / no_occurences)
             for i in range(0, iterations):
                 dp = OrderedDict()
                 ddp = OrderedDict()
