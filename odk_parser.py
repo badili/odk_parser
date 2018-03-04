@@ -30,7 +30,7 @@ from six.moves import range
 from six.moves import zip
 # from sql import Query
 
-sentry = Client('http://412f07efec7d461cbcdaf686c3b01e51:c684fccd436e46169c71f8c841ed3b00@sentry.badili.co.ke/3')
+sentry = Client('http://15a35b6df12347bb938c7d8610624555:d7e4b261b3124626ace680694b2b7be5@localhost:9000/3')
 terminal = Terminal()
 
 LOGGING = {
@@ -244,7 +244,16 @@ class OdkParser():
                 url = "%s%s%d.json?fields=[\"_uuid\", \"_id\"]" % (self.ona_url, self.form_data, form_id)
                 submission_uuids = self.process_curl_request(url)
 
+                if settings.IS_DRY_RUN:
+                    subm_count = 0
                 for uuid in submission_uuids:
+                    # obey the debug setting
+                    if settings.IS_DRY_RUN:
+                        subm_count = subm_count + 1
+                        if subm_count > settings.DRY_RUN_RECORDS:
+                            terminal.tprint("\tWe have downloaded our maximum number of submissions under dry ran settings", 'info')
+                            break
+
                     # check if the current uuid is saved in the database
                     # print odk_form.id
                     # print uuid['_uuid']
@@ -253,6 +262,7 @@ class OdkParser():
                         # the current submission is not saved in the database, so fetch and save it...
                         url = "%s%s%d/%s" % (self.ona_url, self.form_data, form_id, uuid['_id'])
                         submission = self.process_curl_request(url)
+                        terminal.tprint(json.dumps(submission), 'warn')
 
                         t_submission = RawSubmissions(
                             form_id=odk_form.id,
@@ -270,8 +280,11 @@ class OdkParser():
                 # just check if all is now ok
                 submissions = RawSubmissions.objects.filter(form_id=odk_form.id).order_by('submission_time').values('raw_data')
                 if submissions.count() != submitted_instances:
-                    # ok, still the processing is not complete... shout!
-                    terminal.tprint("\tEven after processing submitted responses for '%s', the tally doesn't match (%d vs %d)!" % (odk_form.form_name, submissions.count(), submitted_instances), 'error')
+                    if settings.IS_DRY_RUN:
+                        terminal.tprint("\tThe system is under development, no need to confirm number of counts", 'debug')
+                    else:
+                        # ok, still the processing is not complete... shout!
+                        terminal.tprint("\tEven after processing submitted responses for '%s', the tally doesn't match (%d vs %d)!" % (odk_form.form_name, submissions.count(), submitted_instances), 'error')
                 else:
                     terminal.tprint("\tSubmissions for '%s' successfully updated." % odk_form.form_name, 'info')
             else:
@@ -464,7 +477,14 @@ class OdkParser():
                 t_locale=locale,
                 t_value=node_label
             )
-            dict_item.publish()
+            try:
+                dict_item.publish()
+            except IntegrityError as e:
+                # We can live with this
+                terminal.tprint(str(e), 'fail')
+            except Exception as e:
+                sentry.captureException()
+                raise
 
             if 'mapped' in connections:
                 # add the dictionary item to the final database too. It is expecting that the table exists
@@ -475,11 +495,12 @@ class OdkParser():
                 with connections['mapped'].cursor() as cursor:
                     try:
                         cursor.execute(insert_q, (self.cur_form_group, parent_node, node['name'], node_type, locale, node_label, now, now))
-                    except Exception as e:
-                        terminal.tprint(str(e), 'fail')
+                    except IntegrityError as e:
                         # We can live with this
-                        # sentry.captureException()
-                        # raise
+                        terminal.tprint(str(e), 'fail')
+                    except Exception as e:
+                        sentry.captureException()
+                        raise
 
             if 'type' in node:
                 if node['type'] == 'select one' or node['type'] == 'select all that apply':
@@ -692,7 +713,7 @@ class OdkParser():
 
             terminal.tprint("\tProcessing the file '%s' for saving to the database" % filename, 'warn')
             print (file_extension)
-            if file_extension == b'.csv':
+            if file_extension.decode('ascii') == '.csv':
                 cmd = import_command % (
                     settings.DATABASES['default']['DRIVER'],
                     settings.DATABASES['default']['NAME'],
@@ -795,10 +816,7 @@ class OdkParser():
             Exception: Description
         """
 
-        form_view = FormViews.objects.filter(view_name=view_name)
-        if form_view.count() > 0 and update_local_data is False:
-            raise Exception("The view '%s' is already saved!" % view_name)
-
+        view_name = None if view_name == '' else view_name
         associated_forms = []
         try:
             cur_form = ODKForm.objects.get(form_id=form_id)
@@ -934,15 +952,16 @@ class OdkParser():
         screen_nodes = list(set(screen_nodes))
 
         submissions = []
-        i = 0
+        if is_dry_run:
+            i = 0
         for data in submissions_list:
-            i += 1
             if is_dry_run:
+                i = i + 1
                 if i > settings.DRY_RUN_RECORDS:
                     break
             # data, csv_files = self.post_data_processing(data)
             pk_key = self.pk_name + str(self.indexes['main'])
-            # terminal.tprint(self.determine_type(data), 'warn')
+            # terminal.tprint(json.dumps(data), 'okblue')
             # terminal.tprint(json.dumps(data), 'warn')
 
             if self.determine_type(data) == 'is_json' and 'raw_data' in data:
@@ -952,11 +971,13 @@ class OdkParser():
                 # terminal.tprint(data, 'warn')
                 # print(self.determine_type(data))
                 if (self.determine_type(data) == 'is_string'):
-                    m = re.findall(r"^'(.+)'$", data)
+                    # m = re.findall(r"^'(.+)'$", data)
                     # terminal.tprint(json.dumps(m), 'okblue')
-                    data = json.loads(m[0])
-                    # data = json.loads(data)
-                # terminal.tprint(json.dumps(data), 'fail')
+                    try:
+                        data = json.loads(data.strip('\''))
+                    except Exception as e:
+                        terminal.tprint(json.dumps(data), 'fail')
+                        raise
             else:
                 # terminal.tprint('Is MySQL db', 'okblue')
                 data = json.loads(data)
@@ -2104,8 +2125,10 @@ class OdkParser():
                                 raise ValueError(mssg)
                             elif len(linked_data) > 1:
                                 mssg = "\tI found multiple corresponding datasets in column '%s:%s'. The linkage is ambigous.\n\tQuery: %s\n\tValues: %s" % (source_node['linkage']['table'], source_node['linkage']['col'], fetch_query, json.dumps(query_vals))
-                                self.create_error_log_entry('data_error', mssg, instanceID, None)
-                                raise ValueError(mssg)
+                                # Multiple entries in the dictionary, but since its the dictionary, just get the first one
+
+                                # self.create_error_log_entry('data_error', mssg, instanceID, None)
+                                # raise ValueError(mssg)
                             # terminal.tprint(json.dumps(linked_data[0][0]), 'okblue')
                             linked_nodes.append(linked_data[0][0])
 
