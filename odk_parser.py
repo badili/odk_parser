@@ -320,6 +320,7 @@ class OdkParser():
         """
         try:
             cur_form = ODKForm.objects.get(form_id=form_id)
+
             if cur_form.form_group_id is not None:
                 cur_form_group = ODKFormGroup.objects.get(id=cur_form.form_group_id)
                 self.cur_form_group = cur_form_group.group_name
@@ -350,8 +351,11 @@ class OdkParser():
                 self.repeat_level = 0
                 self.all_nodes = []
                 self.top_node = {"name": "Main", "label": "Top Level", "parent_id": -1, "type": "top_level", "id": 0}
-                m = re.findall(r"^'(.+)'$", cur_form.structure)
-                structure = json.loads(m[0])
+                # terminal.tprint(json.dumps(cur_form.structure), 'okblue')
+                # When saving the json strings to the database, some crazy string manipulation is happening.
+                # In case we have escaped quotes, they are further escaped, hence we need to strip them in addition to the single quotes stored at the begining and at the end
+                # Took a cool 2 days of head scratching and excessive hair loss
+                structure = json.loads(cur_form.structure.strip('\'').replace('\\\\"', ''))
                 self.top_level_hierarchy = self.extract_repeating_groups(structure, 0)
         except Exception as e:
             print((traceback.format_exc()))
