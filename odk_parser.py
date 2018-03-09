@@ -30,6 +30,7 @@ from six.moves import range
 from six.moves import zip
 # from sql import Query
 
+# sentry = Client('http://412f07efec7d461cbcdaf686c3b01e51:c684fccd436e46169c71f8c841ed3b00@sentry.badili.co.ke/3')
 sentry = Client('http://15a35b6df12347bb938c7d8610624555:d7e4b261b3124626ace680694b2b7be5@localhost:9000/3')
 terminal = Terminal()
 
@@ -1332,6 +1333,9 @@ class OdkParser():
 
             if mapping['is_record_id'] is not None:
                 cur_mapping.is_record_identifier = mapping['is_record_id']
+
+            if mapping['is_lookup_id'] is not None:
+                cur_mapping.is_lookup_field = mapping['is_lookup_id']
 
             cur_mapping.publish()
             mappings = self.mapping_info()
