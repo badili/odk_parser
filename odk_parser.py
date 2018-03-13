@@ -984,7 +984,7 @@ class OdkParser():
                 # terminal.tprint(json.dumps(data), 'okblue')
                 data = data['raw_data']
                 # terminal.tprint(data, 'warn')
-                print(self.determine_type(data))
+                terminal.tprint("\tType before conversion: %s" % self.determine_type(data), 'warn')
                 if (self.determine_type(data) == 'is_string'):
                     # m = re.findall(r"^'(.+)'$", data)
                     # terminal.tprint(json.dumps(m), 'okblue')
@@ -996,8 +996,9 @@ class OdkParser():
                         if self.determine_type(data) == 'is_string':
                             terminal.tprint("\tGiving up. I can't convert the string data to a json object.", 'fail')
                             terminal.tprint("\t\t%s" % data, 'warn')
-
                             raise ValueError("Giving up. I can't convert the string data to a json object.")
+
+                        terminal.tprint("\tAfter conversion: %s" % self.determine_type(data), 'warn')
                     except Exception as e:
                         terminal.tprint("\t%s" % str(e), 'fail')
                         terminal.tprint("\t%s" % json.dumps(data), 'fail')
