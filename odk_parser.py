@@ -246,8 +246,12 @@ class OdkParser():
                 # we have some new submissions, so fetch them from the server and save them offline
                 terminal.tprint("\tWe have some new submissions, so fetch them from the server and save them offline", 'info')
                 # fetch the submissions and filter by submission time
-                url = "%s%s%d.json?start=1&limit=5&sort=%s" % (self.ona_url, self.form_data, form_id, '{"_submission_time":-1}')
-                url = "%s%s%d.json?fields=[\"_uuid\", \"_id\"]" % (self.ona_url, self.form_data, form_id)
+                if settings.IS_DRY_RUN:
+                    url = "%s%s%d.json?start=1&limit=5&sort=%s" % (self.ona_url, self.form_data, form_id, '{"_submission_time":-1}')
+                else:
+                    url = "%s%s%d.json?sort=%s" % (self.ona_url, self.form_data, form_id, '{"_submission_time":-1}')
+
+                # url = "%s%s%d.json?fields=[\"_uuid\", \"_id\"]" % (self.ona_url, self.form_data, form_id)
                 submission_uuids = self.process_curl_request(url)
 
                 if settings.IS_DRY_RUN:
@@ -280,7 +284,7 @@ class OdkParser():
                         t_submission.publish()
                     else:
                         # the current submission is already saved, so stop the processing
-                        # terminal.tprint("The current submission is already saved, implying that all submissions have been processed, so stop the processing!", 'fail')
+                        # terminal.tprint("The current submission is already saved, implying that all submissions have been processed, so stop the processing!", 'okblue')
                         continue
 
                 # just check if all is now ok
@@ -968,6 +972,7 @@ class OdkParser():
             if is_dry_run:
                 i = i + 1
                 if i > settings.DRY_RUN_RECORDS:
+                    terminal.tprint("\tWe have processed the maximum number of submissions under dry ran settings", 'okblue')
                     break
             # data, csv_files = self.post_data_processing(data)
             pk_key = self.pk_name + str(self.indexes['main'])
@@ -979,14 +984,23 @@ class OdkParser():
                 # terminal.tprint(json.dumps(data), 'okblue')
                 data = data['raw_data']
                 # terminal.tprint(data, 'warn')
-                # print(self.determine_type(data))
+                print(self.determine_type(data))
                 if (self.determine_type(data) == 'is_string'):
                     # m = re.findall(r"^'(.+)'$", data)
                     # terminal.tprint(json.dumps(m), 'okblue')
                     try:
-                        data = json.loads(data.strip('\''))
+                        data = json.loads(data.strip('\'').replace('\\\\"', ''))
+                        if self.determine_type(data) == 'is_string':
+                            data = json.loads(data.strip('\'').replace('\\\\"', ''))
+
+                        if self.determine_type(data) == 'is_string':
+                            terminal.tprint("\tGiving up. I can't convert the string data to a json object.", 'fail')
+                            terminal.tprint("\t\t%s" % data, 'warn')
+
+                            raise ValueError("Giving up. I can't convert the string data to a json object.")
                     except Exception as e:
-                        terminal.tprint(json.dumps(data), 'fail')
+                        terminal.tprint("\t%s" % str(e), 'fail')
+                        terminal.tprint("\t%s" % json.dumps(data), 'fail')
                         raise
             else:
                 # terminal.tprint('Is MySQL db', 'okblue')
@@ -1853,6 +1867,7 @@ class OdkParser():
                 i += 1
                 if is_dry_run:
                     if i > settings.DRY_RUN_RECORDS:
+                        terminal.tprint('\tWe have processed the necessary submissions in the group, now breaking...', 'okblue')
                         break
 
                 transaction.set_autocommit(False)
@@ -2192,7 +2207,7 @@ class OdkParser():
             else:
                 odk_source_qst = source_node['sources'][0]
 
-            if is_foreign_key:
+            if is_foreign_key and node_data is None:
                 # we need to get the foreign key to this. It must have been processed and saved already
                 # terminal.tprint(json.dumps(self.cur_fk), 'warn')
                 if source_node['ref_table_name'] not in self.cur_fk:
