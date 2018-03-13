@@ -30,8 +30,6 @@ from six.moves import range
 from six.moves import zip
 # from sql import Query
 
-# sentry = Client('http://412f07efec7d461cbcdaf686c3b01e51:c684fccd436e46169c71f8c841ed3b00@sentry.badili.co.ke/3')
-sentry = Client('http://15a35b6df12347bb938c7d8610624555:d7e4b261b3124626ace680694b2b7be5@localhost:9000/3')
 terminal = Terminal()
 
 LOGGING = {
@@ -59,6 +57,13 @@ request = HttpRequest()
 class OdkParser():
     def __init__(self):
         terminal.tprint("Initializing the core ODK parser", 'ok')
+        terminal.tprint("The site URL is: %s" % settings.ABSOLUTE_ROOT, 'ok')
+
+        global sentry
+        if re.search('localhost', settings.ABSOLUTE_ROOT) is not None:
+            sentry = Client(settings.SENTRY_LOCALHOST)
+        else:
+            sentry = Client(settings.SENTRY_PRODUCTION)
 
         # ona api end points
         self.api_all_forms = 'api/v1/forms'
