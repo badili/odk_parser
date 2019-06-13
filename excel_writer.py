@@ -43,18 +43,6 @@ class ExcelWriter():
             for sheet_name, data in six.iteritems(self.pending_processing):
                 if data['is_processed'] is False:
                     terminal.tprint('Processing ' + sheet_name, 'okblue')
-                    if len(sheet_name) > 31:
-                        # if the worksheet name is > 31 chars rename it to a shorter name due to Excel worksheet name restrictions
-                        # https://stackoverflow.com/questions/3681868/is-there-a-limit-on-an-excel-worksheets-name-length
-                        # we rename the worksheet by retaining the first 2 parts from s7p10q1_rpt_chicken_hlth_service ==> s7p10q1_rpt
-                        matches = re.findall('^(s\d+p\d+q\d+?_)(rpt)?', sheet_name)
-                        matches = matches[0]
-                        print matches
-                        if len(matches) == 2:
-                            sheet_name = str(matches[0]) + str(matches[1])
-                        elif len(matches) == 1:
-                            sheet_name = str(matches[0])
-
                     all_processed = False
                     self.process_and_write(data['data'], sheet_name)
                     # mark it as processed
@@ -100,7 +88,19 @@ class ExcelWriter():
         # terminal.tprint("\tBatch writing of " + sheet_name, 'ok')
         # terminal.tprint(json.dumps(cur_records), 'warn')
         if self.format == 'xlsx':
-            self.wb.new_sheet(sheet_name, data=cur_records)
+            if len(sheet_name) > 31:
+                # if the worksheet name is > 31 chars rename it to a shorter name due to Excel worksheet name restrictions
+                # https://stackoverflow.com/questions/3681868/is-there-a-limit-on-an-excel-worksheets-name-length
+                # we rename the worksheet by retaining the first 2 parts from s7p10q1_rpt_chicken_hlth_service ==> s7p10q1_rpt
+                matches = re.findall(ur'^(s[\d_]+p[\d_]+q[\d_]+?_)(rpt)?', sheet_name)
+                matches = list(matches[0])
+                if len(matches) == 2:
+                    final_sheet_name = str(matches[0]) + str(matches[1])
+                elif len(matches) == 1:
+                    final_sheet_name = str(matches[0])
+            else:
+                final_sheet_name = sheet_name
+            self.wb.new_sheet(final_sheet_name, data=cur_records)
 
         if self.format == 'csv':
             filename = os.path.join(self.save_dir, '%s.%s' % (sheet_name, 'csv'))

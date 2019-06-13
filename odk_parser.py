@@ -375,6 +375,10 @@ class OdkParser():
         except IntegrityError as e:
             # We can live with this
             terminal.tprint(str(e), 'fail')
+        except TypeError as e:
+            # Can we live with this???
+            terminal.tprint('Can we live with this error???', 'ok')
+            terminal.tprint(str(e), 'fail')
         except Exception as e:
             print((traceback.format_exc()))
             logger.debug(str(e))
