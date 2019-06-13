@@ -57,13 +57,9 @@ request = HttpRequest()
 class OdkParser():
     def __init__(self):
         terminal.tprint("Initializing the core ODK parser", 'ok')
-        terminal.tprint("The site URL is: %s" % settings.ABSOLUTE_ROOT, 'ok')
 
         global sentry
-        if re.search('localhost', settings.ABSOLUTE_ROOT) is not None:
-            sentry = Client(settings.SENTRY_LOCALHOST)
-        else:
-            sentry = Client(settings.SENTRY_PRODUCTION)
+        sentry = Client(settings.SENTRY_DSN)
 
         # ona api end points
         self.api_all_forms = 'api/v1/forms'
@@ -164,6 +160,7 @@ class OdkParser():
         """
         url = "%s%s" % (self.ona_url, self.api_all_forms)
         all_forms = self.process_curl_request(url)
+        terminal.tprint(json.dumps(all_forms), 'fail')
         if all_forms is None:
             print("Error while executing the API request %s" % url)
             return
@@ -328,6 +325,7 @@ class OdkParser():
         """
         check whether the form structure is already saved in the DB
         """
+        terminal.tprint("Fetching form with id %d" % form_id, 'warn')
         try:
             cur_form = ODKForm.objects.get(form_id=form_id)
 
@@ -352,8 +350,15 @@ class OdkParser():
                     raise Exception("There was an error in fetching the selected form and it is not yet saved in the database.")
             else:
                 terminal.tprint("\tFetching the form's '%s' structure from the database" % cur_form.form_name, 'okblue')
-                processed_nodes = cur_form.processed_structure
-                m = re.findall(r"^'(.+)'$", cur_form.processed_structure)
+                struct_type = self.determine_type(cur_form.processed_structure)
+
+                # print (cur_form.structure)
+                if(struct_type is not 'is_string'):
+                    processed_nodes = (cur_form.processed_structure)
+                else:
+                    processed_nodes = cur_form.processed_structure
+
+                m = re.findall(r"^'(.+)'$", processed_nodes)
                 processed_nodes = json.loads(m[0])
                 # force a re-extraction of the nodes
                 self.cur_node_id = 0
@@ -367,6 +372,9 @@ class OdkParser():
                 # Took a cool 2 days of head scratching and excessive hair loss
                 structure = json.loads(cur_form.structure.strip('\'').replace('\\\\"', ''))
                 self.top_level_hierarchy = self.extract_repeating_groups(structure, 0)
+        except IntegrityError as e:
+            # We can live with this
+            terminal.tprint(str(e), 'fail')
         except Exception as e:
             print((traceback.format_exc()))
             logger.debug(str(e))
@@ -479,7 +487,10 @@ class OdkParser():
             terminal.tprint('\t\t%s' % json.dumps(node), 'okblue')
             node_label = node['label'] if 'label' in node else node['name']
             (node_label, locale) = self.process_node_label(node)
-            locale = settings.LOCALES[locale]
+            try:
+                locale = settings.LOCALES[locale]
+            except Exception as e:
+                locale = 'English'
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             dict_item = DictionaryItems(
                 form_group=self.cur_form_group,
@@ -500,7 +511,7 @@ class OdkParser():
                 sentry.captureException()
                 raise
 
-            if 'mapped' in connections:
+            if 'mappes' in connections:
                 # add the dictionary item to the final database too. It is expecting that the table exists
                 insert_q = '''
                     INSERT INTO dictionary_items(form_group, parent_node, t_key, t_type, t_locale, t_value, date_created, date_modified)
@@ -530,8 +541,12 @@ class OdkParser():
         '''
         node_type = self.determine_type(t_node['label'])
         if node_type == 'is_json':
-            cur_label = t_node['label'][settings.DEFAULT_LOCALE]
-            locale = settings.DEFAULT_LOCALE
+            try:
+                cur_label = t_node['label'][settings.DEFAULT_LOCALE]
+                locale = settings.DEFAULT_LOCALE
+            except Exception:
+                cur_label = t_node['label']
+                locale = 'English'
         elif node_type == 'is_string':
             cur_label = t_node['label']
             locale = settings.DEFAULT_LOCALE
@@ -1200,7 +1215,9 @@ class OdkParser():
         """
         Create and execute a curl request
         """
+        self.ona_api_token = '825e7898bad9dd5a73aa993ac1dad562eed6b6c4'
         headers = {'Authorization': "Token %s" % self.ona_api_token}
+        terminal.tprint("\Token %s" % self.ona_api_token, 'ok')
         terminal.tprint("\tProcessing API request %s" % url, 'okblue')
         try:
             r = requests.get(url, headers=headers)
@@ -2438,17 +2455,26 @@ class OdkParser():
             array: Returns an array with the processing status and a JSON of the form status
         """
         with connection.cursor() as cursor:
-            form_details_q = 'SELECT b.form_id, b.form_name, c.group_name, a.is_processed, count(*) as r_count FROM raw_submissions as a INNER JOIN odkform as b on a.form_id=b.id INNER JOIN form_groups as c on b.form_group_id=c.id GROUP BY b.id, a.is_processed ORDER BY c.group_name, b.form_id, a.is_processed'
+            form_details_q = 'SELECT b.form_id, b.id, b.form_name, date_format(b.date_created, "%d %b %Y") as date_created, c.group_name, a.is_processed, count(*) as r_count FROM raw_submissions as a INNER JOIN odkform as b on a.form_id=b.id INNER JOIN form_groups as c on b.form_group_id=c.id GROUP BY b.id, a.is_processed ORDER BY c.group_name, b.form_id, a.is_processed'
             cursor.execute(form_details_q)
             form_details = self.dictfetchall(cursor)
 
             to_return = {}
             for res in form_details:
+                r_sub = RawSubmissions.objects.filter(form_id=res['id']).order_by('-submission_time')
+                if len(r_sub) == 0:
+                    last_sub_time = 'N/A'
+                else:
+                    last_sub = model_to_dict(r_sub[0])
+                    last_sub_time = last_sub['submission_time']
+                
                 if res['form_id'] not in to_return:
                     to_return[res['form_id']] = {
                         'form_id': res['form_id'],
                         'form_name': res['form_name'],
                         'form_group': res['group_name'],
+                        'date_created': res['date_created'],
+                        'last_submission_date': last_sub_time,
                         'no_submissions': 0,
                         'no_processed': res['r_count'] if res['is_processed'] == 1 else 0,
                         'unprocessed': res['r_count'] if res['is_processed'] == 0 else 0
