@@ -872,6 +872,7 @@ class OdkParser():
             Exception: Description
         """
 
+        print( "%s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name) )
         view_name = None if view_name == '' else view_name
         associated_forms = []
         try:
@@ -913,6 +914,7 @@ class OdkParser():
             except Exception as e:
                 # logging.debug(traceback.format_exc())
                 # logging.error(str(e))
+                print((traceback.format_exc()))
                 terminal.tprint(str(e), 'fail')
                 sentry.captureException()
                 # raise Exception(str(e))
@@ -921,7 +923,7 @@ class OdkParser():
             if this_submissions is None:
                 continue
             else:
-                terminal.tprint("\tTotal no of submissions %d" % len(this_submissions), 'warn')
+                terminal.tprint("\tCurrent no of submissions %d" % len(this_submissions), 'warn')
                 all_submissions = copy.deepcopy(all_submissions) + copy.deepcopy(this_submissions)
 
         terminal.tprint("\tTotal no of submissions %d" % len(all_submissions), 'ok')
@@ -1024,7 +1026,7 @@ class OdkParser():
             if self.determine_type(data) == 'is_json' and 'raw_data' in data:
                 # terminal.tprint('Is postgres db', 'okblue')
                 # terminal.tprint(json.dumps(data), 'okblue')
-                data = data['raw_data']
+                data = json.loads(data['raw_data'])
                 # terminal.tprint("\t%s" % data, 'ok')
                 # terminal.tprint("\tType before conversion: %s" % self.determine_type(data), 'warn')
                 if (self.determine_type(data) == 'is_string'):
@@ -1047,7 +1049,6 @@ class OdkParser():
                 # terminal.tprint('Is MySQL db', 'okblue')
                 data = json.loads(data)
 
-            # print data
             data['unique_id'] = pk_key
             data = self.process_node(data, 'main', screen_nodes, True)
 
@@ -1068,7 +1069,7 @@ class OdkParser():
 
             val_type = self.determine_type(value)
 
-            # terminal.tprint("\t"+clean_key, 'okblue')
+            # terminal.tprint("%s ==> %s" % (key, clean_key), 'okblue')
             if nodes_of_interest is not None:
                 if clean_key not in nodes_of_interest:
                     # if we have a list or json as the value_type, allow further processing
@@ -1222,7 +1223,7 @@ class OdkParser():
 
     def clean_json_key(self, j_key):
         # given a key from ona with data, get the sane(last) part of the key
-        m = re.findall("/?(\w+)$", j_key)
+        m = re.findall("/?([\.\w]+)$", j_key)
         return m[0]
 
     def get_clean_data_value(self, cleaners, code):
