@@ -97,6 +97,14 @@ class OdkParser():
         for setting in ona_settings:
             setattr(self, setting.setting_key, setting.setting_value)
 
+    def load_defined_settings(self):
+        """
+        Load the defined settings in the database to be system variables
+        """
+        sys_settings = SystemSettings.objects.all()
+        for setting in sys_settings:
+            setattr(self, setting.setting_key, setting.setting_value)
+
     def load_mapped_connection(self):
         all_settings = self.get_all_settings()
         if 'dest_db_host_name' in all_settings:
@@ -352,36 +360,42 @@ class OdkParser():
                     raise Exception("There was an error in fetching the selected form and it is not yet saved in the database.")
             else:
                 terminal.tprint("\tFetching the form's '%s' structure from the database" % cur_form.form_name, 'okblue')
+                # We are expecting the processed_structure as a list of json and the structure as a json
                 struct_type = self.determine_type(cur_form.processed_structure)
 
-                # print (cur_form.structure)
-                if(struct_type is not 'is_string'):
-                    processed_nodes = (cur_form.processed_structure)
-                else:
+                terminal.tprint('The processed structure type is -- %s' % struct_type, 'fail')
+                if(struct_type is 'is_string'):
                     processed_nodes = cur_form.processed_structure
 
-                m = re.findall(r"^'(.+)'$", processed_nodes)
-                processed_nodes = json.loads(m[0])
-                # force a re-extraction of the nodes
-                self.cur_node_id = 0
-                self.cur_form_id = form_id
-                self.repeat_level = 0
-                self.all_nodes = []
-                self.top_node = {"name": "Main", "label": "Top Level", "parent_id": -1, "type": "top_level", "id": 0}
+                    # I am gambling that the following are only needed when a string is fetched from the database
+                    m = re.findall(r"^'(.+)'$", processed_nodes)
+                    processed_nodes = json.loads(m[0])
+                elif(struct_type is 'is_list'):
+                    processed_nodes = cur_form.processed_structure
+                else:
+                    processed_nodes = (cur_form.processed_structure)
+
+                # force a re-extraction of the nodes (2019-06-14 not clear why we need to do this.... commenting out this block for now)
+                # self.cur_node_id = 0
+                # self.cur_form_id = form_id
+                # self.repeat_level = 0
+                # self.all_nodes = []
+                # self.top_node = {"name": "Main", "label": "Top Level", "parent_id": -1, "type": "top_level", "id": 0}
                 # terminal.tprint(json.dumps(cur_form.structure), 'okblue')
                 # When saving the json strings to the database, some crazy string manipulation is happening.
                 # In case we have escaped quotes, they are further escaped, hence we need to strip them in addition to the single quotes stored at the begining and at the end
                 # Took a cool 2 days of head scratching and excessive hair loss
-                structure = json.loads(cur_form.structure.strip('\'').replace('\\\\"', ''))
-                self.top_level_hierarchy = self.extract_repeating_groups(structure, 0)
+                # structure = json.loads(cur_form.structure.strip('\'').replace('\\\\"', ''))
+                # self.top_level_hierarchy = self.extract_repeating_groups(structure, 0)
         except IntegrityError as e:
             # We can live with this
             terminal.tprint(str(e), 'fail')
         except TypeError as e:
             # Can we live with this???
             print((traceback.format_exc()))
-            terminal.tprint('Can we live with this error???', 'ok')
             terminal.tprint(str(e), 'fail')
+            # terminal.tprint(json.dumps(processed_nodes), 'fail')
+            terminal.tprint('Can we live with this (%s) error???' % str(e), 'ok')
         except Exception as e:
             print((traceback.format_exc()))
             logger.debug(str(e))
@@ -389,6 +403,7 @@ class OdkParser():
             sentry.captureException()
             raise Exception(str(e))
 
+        # the processed nodes to be return should be as a list nodes
         return processed_nodes
 
     def get_form_structure_from_server(self, form_id):
@@ -555,7 +570,6 @@ class OdkParser():
             except Exception as e:
                 terminal.tprint("There was an error (%s) while getting a node label from:\n\t%s" % (str(e), json.dumps(t_node)), 'debug')
                 terminal.tprint("I will get the first label", 'warn')
-                print(t_node['label'].values()[0])
                 cur_label = t_node['label'].values()[0]
                 locale = t_node['label'].keys()[0]
         elif node_type == 'is_string':
