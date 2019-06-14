@@ -337,7 +337,8 @@ class OdkParser():
 
             # check if the structure exists
             # FORCE A STRUCTURE REGENERATION
-            if cur_form.structure is not None:
+            # if cur_form.structure is not None:
+            if cur_form.structure is None:
                 # we don't have the structure, so fetch, process and save the structure
                 terminal.tprint("\tThe form '%s' doesn't have a saved structure, so lets fetch it and add it" % cur_form.form_name, 'warn')
                 (processed_nodes, structure) = self.get_form_structure_from_server(form_id)
@@ -378,6 +379,7 @@ class OdkParser():
             terminal.tprint(str(e), 'fail')
         except TypeError as e:
             # Can we live with this???
+            print((traceback.format_exc()))
             terminal.tprint('Can we live with this error???', 'ok')
             terminal.tprint(str(e), 'fail')
         except Exception as e:
@@ -414,7 +416,7 @@ class OdkParser():
         # terminal.tprint(json.dumps(self.all_nodes), 'warn')
         return self.all_nodes, form_structure
 
-    def extract_repeating_groups(self, nodes, parent_id, use_sections = False):
+    def extract_repeating_groups(self, nodes, parent_id, use_sections=False):
         """
         Process a node and get the repeating groups
         """
@@ -429,11 +431,11 @@ class OdkParser():
                 if 'label' in node:
                     (node_label, locale) = self.process_node_label(node)
                 else:
-                    terminal.tprint("\t\t%s missing label. Using name('%s') instead" % (node['type'], node['name']), 'warn')
+                    terminal.tprint("%s missing label. Using name('%s') instead" % (node['type'], node['name']), 'warn')
                     node_label = node['name']
 
                 if node['type'] == 'repeat' or node['type'] == 'group':
-                    terminal.tprint("\tProcessing %s" % node_label, 'okblue')
+                    terminal.tprint("\nProcessing %s" % node_label, 'okblue')
                     # only add a node when we are dealing with a repeat
                     if node['type'] == 'repeat':
                         self.cur_node_id += 1
@@ -451,6 +453,7 @@ class OdkParser():
                         if len(child_node) != 0:
                             if t_node is None:
                                 # we have something to save yet it wasn't wrapped in a repeat initially
+                                terminal.tprint("\tWe have something to save yet it wasn't wrapped in a repeat initially", 'warn')
                                 # self.cur_node_id += 1
                                 terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(child_node[0])), 'warn')
                                 t_node = child_node[0]
@@ -464,7 +467,7 @@ class OdkParser():
                         if 'items' in t_node and len(t_node['items']) == 0:
                             del t_node['items']
                         cur_node.append(t_node)
-                        # terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(t_node)), 'warn')
+                        terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(t_node)), 'warn')
                         self.add_to_all_nodes(t_node)
                 else:
                     # before anything, add this node to the dictionary
@@ -473,7 +476,7 @@ class OdkParser():
 
                     # if self.repeat_level == 0:
                     self.cur_node_id += 1
-                    terminal.tprint("\tAdding a top node("+ node_label +") child. Should it really be added to the top node?", 'ok')
+                    # terminal.tprint("\tAdding a top node("+ node_label +") child. Should it really be added to the top node?", 'ok')
                     t_node = {'id': self.cur_node_id, 'parent_id': parent_id, 'type': node['type'], 'label': node_label, 'name': node['name']}
                     self.all_nodes.append(t_node)
             else:
@@ -549,9 +552,12 @@ class OdkParser():
             try:
                 cur_label = t_node['label'][settings.DEFAULT_LOCALE]
                 locale = settings.DEFAULT_LOCALE
-            except Exception:
-                cur_label = t_node['label']
-                locale = 'English'
+            except Exception as e:
+                terminal.tprint("There was an error (%s) while getting a node label from:\n\t%s" % (str(e), json.dumps(t_node)), 'debug')
+                terminal.tprint("I will get the first label", 'warn')
+                print(t_node['label'].values()[0])
+                cur_label = t_node['label'].values()[0]
+                locale = t_node['label'].keys()[0]
         elif node_type == 'is_string':
             cur_label = t_node['label']
             locale = settings.DEFAULT_LOCALE
@@ -568,6 +574,8 @@ class OdkParser():
         if 'label' in t_node:
             (cur_label, locale) = self.process_node_label(t_node)
             t_node['label'] = cur_label
+            print(cur_label)
+            # terminal.tprint('searching cur label' + cur_label, 'debug')
             if re.search(":$", cur_label) is not None:
                 # in case the label was ommitted, use the name tag
                 t_node['label'] = t_node['name']
