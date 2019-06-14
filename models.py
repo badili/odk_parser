@@ -1,11 +1,16 @@
 from django.contrib.auth.models import User
-from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from easy_thumbnails.fields import ThumbnailerImageField
 from django.conf import settings
+
+if settings.DATABASES['default']['ENGINE'] == 'django.db.backends.mysql':
+    # from django_mysql.models import JSONField
+    from jsonfield import JSONField
+elif settings.DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql_psycopg2':
+    from django.contrib.postgres.fields import JSONField
 
 
 class Profile(models.Model):
@@ -48,9 +53,10 @@ class Profile(models.Model):
 
 @receiver(post_save, sender=User)
 def create_or_update_user_profile(sender, instance, created, **kwargs):
+    print instance
     if created:
         Profile.objects.create(user=instance)
-    instance.profile.save()
+    # instance.profile.save()
 
 
 class BaseTable(models.Model):

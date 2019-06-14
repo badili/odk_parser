@@ -336,12 +336,13 @@ class OdkParser():
                 self.cur_form_group = 'Undefined'
 
             # check if the structure exists
-            if cur_form.structure is None:
+            # FORCE A STRUCTURE REGENERATION
+            if cur_form.structure is not None:
                 # we don't have the structure, so fetch, process and save the structure
                 terminal.tprint("\tThe form '%s' doesn't have a saved structure, so lets fetch it and add it" % cur_form.form_name, 'warn')
                 (processed_nodes, structure) = self.get_form_structure_from_server(form_id)
+                terminal.tprint(json.dumps(structure), 'okblue')
                 if structure is not None:
-                    # terminal.tprint(json.dumps(structure), 'okblue')
                     cur_form.structure = structure
                     # cur_form.structure = json.dumps(structure)
                     cur_form.processed_structure = processed_nodes
@@ -413,13 +414,13 @@ class OdkParser():
         # terminal.tprint(json.dumps(self.all_nodes), 'warn')
         return self.all_nodes, form_structure
 
-    def extract_repeating_groups(self, nodes, parent_id):
+    def extract_repeating_groups(self, nodes, parent_id, use_sections = False):
         """
         Process a node and get the repeating groups
         """
         cur_node = []
         node_type = self.determine_type(nodes)
-        terminal.tprint(json.dumps(nodes), 'debug')
+        # terminal.tprint(json.dumps(nodes), 'debug')
         # print(nodes)
         if node_type == 'is_string':
             nodes = json.loads(nodes)
@@ -472,7 +473,7 @@ class OdkParser():
 
                     # if self.repeat_level == 0:
                     self.cur_node_id += 1
-                    # terminal.tprint("\tAdding a top node child", 'ok')
+                    terminal.tprint("\tAdding a top node("+ node_label +") child. Should it really be added to the top node?", 'ok')
                     t_node = {'id': self.cur_node_id, 'parent_id': parent_id, 'type': node['type'], 'label': node_label, 'name': node['name']}
                     self.all_nodes.append(t_node)
             else:
