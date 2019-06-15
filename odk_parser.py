@@ -277,7 +277,7 @@ class OdkParser():
                         # the current submission is not saved in the database, so fetch and save it...
                         url = "%s%s%d/%s" % (self.ona_url, self.form_data, form_id, uuid['_id'])
                         submission = self.process_curl_request(url)
-                        terminal.tprint(json.dumps(submission), 'warn')
+                        # terminal.tprint(json.dumps(submission), 'warn')
 
                         t_submission = RawSubmissions(
                             form_id=odk_form.id,
@@ -350,7 +350,7 @@ class OdkParser():
                 # we don't have the structure, so fetch, process and save the structure
                 terminal.tprint("\tThe form '%s' doesn't have a saved structure, so lets fetch it and add it" % cur_form.form_name, 'warn')
                 (processed_nodes, structure) = self.get_form_structure_from_server(form_id)
-                terminal.tprint(json.dumps(structure), 'okblue')
+                # terminal.tprint(json.dumps(structure), 'okblue')
                 if structure is not None:
                     cur_form.structure = structure
                     # cur_form.structure = json.dumps(structure)
@@ -423,7 +423,10 @@ class OdkParser():
         self.all_nodes = []
         self.top_node = {"name": "Main", "label": "Top Level", "parent_id": -1, "type": "top_level", "id": 0}
 
-        self.top_level_hierarchy = self.extract_repeating_groups(form_structure, 0)
+        # initialize a current section variable if we are to group them
+        self.cur_section = None
+
+        self.top_level_hierarchy = self.extract_repeating_groups(form_structure, 0, True)
         self.all_nodes.insert(0, self.top_node)
         terminal.tprint("Processed %d group nodes" % self.cur_node_id, 'warn')
 
@@ -438,19 +441,32 @@ class OdkParser():
         cur_node = []
         node_type = self.determine_type(nodes)
         # terminal.tprint(json.dumps(nodes), 'debug')
-        # print(nodes)
+        # print(nodes) 
         if node_type == 'is_string':
             nodes = json.loads(nodes)
         for node in nodes['children']:
+            # print('Level %d' % self.repeat_level)
             if 'type' in node:
                 if 'label' in node:
                     (node_label, locale) = self.process_node_label(node)
                 else:
-                    terminal.tprint("%s missing label. Using name('%s') instead" % (node['type'], node['name']), 'warn')
+                    # terminal.tprint("%s missing label. Using name('%s') instead" % (node['type'], node['name']), 'warn')
                     node_label = node['name']
 
+                if use_sections:
+                    (cur_section, section_name) = self.get_current_section(node_label)
+                    if cur_section is not None and cur_section != self.cur_section:
+                        # we need to add a new top section for the next nodes
+                        terminal.tprint("\tAdding a new section(%s) from '%s' to the stack" % (cur_section, node_label), 'debug')
+                        self.cur_node_id += 1
+                        t_node = {'id': self.cur_node_id, 'parent_id': 0, 'type': 'new_section', 'label': "%s - %s" % (cur_section.upper(), section_name), 'name': cur_section}
+                        self.all_nodes.append(t_node)
+                        self.cur_section = cur_section
+                        # add the upcoming nodes to the newly created node
+                        parent_id = self.cur_node_id
+
                 if node['type'] == 'repeat' or node['type'] == 'group':
-                    terminal.tprint("\nProcessing %s" % node_label, 'okblue')
+                    # terminal.tprint("\nProcessing %s" % node_label, 'okblue')
                     # only add a node when we are dealing with a repeat
                     if node['type'] == 'repeat':
                         self.cur_node_id += 1
@@ -459,18 +475,21 @@ class OdkParser():
                         t_node = None
 
                     if 'children' in node:
-                        terminal.tprint("\t%s-%s has %d children" % (node['type'], node_label, len(node['children'])), 'ok')
-                        self.repeat_level += 1
+                        # terminal.tprint("\t%s-%s has %d children" % (node['type'], node_label, len(node['children'])), 'ok')
                         # determine parent_id. If we are in a group, pass the current parent_id, else pass the cur_node_id
-                        t_parent_id = self.cur_node_id if node['type'] == 'repeat' else parent_id
-                        child_node = self.extract_repeating_groups(node, t_parent_id)
+                        if node['type'] == 'repeat':
+                            t_parent_id = self.cur_node_id
+                            self.repeat_level += 1
+                        else:
+                            t_parent_id = parent_id
+                        child_node = self.extract_repeating_groups(node, t_parent_id, use_sections)
 
                         if len(child_node) != 0:
                             if t_node is None:
                                 # we have something to save yet it wasn't wrapped in a repeat initially
-                                terminal.tprint("\tWe have something to save yet it wasn't wrapped in a repeat initially", 'warn')
+                                # terminal.tprint("\tWe have something to save yet it wasn't wrapped in a repeat initially", 'warn')
                                 # self.cur_node_id += 1
-                                terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(child_node[0])), 'warn')
+                                # terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(child_node[0])), 'warn')
                                 t_node = child_node[0]
                             else:
                                 t_node['items'].append(child_node[0])
@@ -482,7 +501,7 @@ class OdkParser():
                         if 'items' in t_node and len(t_node['items']) == 0:
                             del t_node['items']
                         cur_node.append(t_node)
-                        terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(t_node)), 'warn')
+                        # terminal.tprint("\t%d:%s--%s" % (self.cur_node_id, node['type'], json.dumps(t_node)), 'warn')
                         self.add_to_all_nodes(t_node)
                 else:
                     # before anything, add this node to the dictionary
@@ -498,8 +517,18 @@ class OdkParser():
                 # we possibly have the options, so add them to the dictionary
                 self.add_dictionary_items(node, 'choice')
 
-        self.repeat_level -= 1
+        # should only be decremented when coming from a repeat group
+        if(node['type'] == 'repeat'):
+            self.repeat_level -= 1
         return cur_node
+
+    def get_current_section(self, label):
+        # get the current section and return it or return None if not found
+        m = re.search('^(s\d+p\d+)', label, re.I)
+        if m is not None:
+            t = re.search("([\w\'\s']+)$", label, re.I)
+            grp_name = t.group(1).strip().upper() if t is not None else ''
+        return (m.group(1).lower(), grp_name) if m is not None and len(m.groups()) == 1 else (None, None)
 
     def add_dictionary_items(self, node, node_type, parent_node=None):
         # check if this key already exists
@@ -555,8 +584,8 @@ class OdkParser():
                     if 'children' in node:
                         for child in node['children']:
                             self.add_dictionary_items(child, 'choice', node['name'])
-        else:
-            terminal.tprint("\tThe node %s is already saved, skipping it" % node['name'], 'okblue')
+        # else:
+        #     terminal.tprint("\tThe node %s is already saved, skipping it" % node['name'], 'okblue')
 
     def process_node_label(self, t_node):
         '''
@@ -588,7 +617,6 @@ class OdkParser():
         if 'label' in t_node:
             (cur_label, locale) = self.process_node_label(t_node)
             t_node['label'] = cur_label
-            print(cur_label)
             # terminal.tprint('searching cur label' + cur_label, 'debug')
             if re.search(":$", cur_label) is not None:
                 # in case the label was ommitted, use the name tag
@@ -872,7 +900,7 @@ class OdkParser():
             Exception: Description
         """
 
-        print( "%s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name) )
+        # print( "%s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name) )
         view_name = None if view_name == '' else view_name
         associated_forms = []
         try:
@@ -1245,7 +1273,7 @@ class OdkParser():
         """
         self.ona_api_token = '825e7898bad9dd5a73aa993ac1dad562eed6b6c4'
         headers = {'Authorization': "Token %s" % self.ona_api_token}
-        terminal.tprint("\Token %s" % self.ona_api_token, 'ok')
+        # terminal.tprint("\Token %s" % self.ona_api_token, 'ok')
         terminal.tprint("\tProcessing API request %s" % url, 'okblue')
         try:
             r = requests.get(url, headers=headers)
