@@ -883,7 +883,7 @@ class OdkParser():
         db_name = db_name.replace('.', '_')
         return db_name
 
-    def fetch_merge_data(self, form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True):
+    def fetch_merge_data(self, form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True, filters=None):
         """
         Given a form id and nodes of interest, get data from all associated forms
         Args:
@@ -900,7 +900,7 @@ class OdkParser():
             Exception: Description
         """
 
-        # print( "%s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name) )
+        # print( "%s - %s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name, filters))
         view_name = None if view_name == '' else view_name
         associated_forms = []
         try:
@@ -938,7 +938,7 @@ class OdkParser():
 
         for form_id in associated_forms:
             try:
-                this_submissions = self.get_form_submissions_as_json(int(form_id), nodes, uuids, update_local_data, is_dry_run)
+                this_submissions = self.get_form_submissions_as_json(int(form_id), nodes, uuids, update_local_data, is_dry_run, filters)
             except Exception as e:
                 # logging.debug(traceback.format_exc())
                 # logging.error(str(e))
@@ -989,7 +989,7 @@ class OdkParser():
         writer = ExcelWriter(filename)
         writer.create_workbook(submissions, structure)
 
-    def get_form_submissions_as_json(self, form_id, screen_nodes, uuids=None, update_local_data=True, is_dry_run=True):
+    def get_form_submissions_as_json(self, form_id, screen_nodes, uuids=None, update_local_data=True, is_dry_run=True, filters=None):
         """Given a form id get the form submissions
         
         If the screen_nodes is given, process and return only the subset of data in those forms
@@ -1020,8 +1020,8 @@ class OdkParser():
 
             # get the fields to include as part of the form metadata
             # todo: Add option of specifying metadata
-            form_meta = ''
-            self.pk_name = 'b3a_'
+            form_meta = ['_uuid', 's1p1q3_country', 's1p1q3_sel_country']
+            self.pk_name = 'cim_'
             self.sk_format = 'id_'
         except Exception as e:
             terminal.tprint("Form settings for form id (%d) haven't been defined" % form_id, 'fail')
@@ -1038,6 +1038,10 @@ class OdkParser():
         screen_nodes = list(set(screen_nodes))
 
         submissions = []
+        if filters is not None:
+            # create a dictionary which will contain the details of the filters, ie, the short_field_name, full_field_name and the filter criteria
+            # terminal.tprint("\tWe are going to filter the data using the criteria: "+ json.dumps(filters), 'debug')
+            self.filters_in_detail = {}
         if is_dry_run:
             i = 0
         for data in submissions_list:
@@ -1078,12 +1082,44 @@ class OdkParser():
                 data = json.loads(data)
 
             data['unique_id'] = pk_key
+            if filters is not None:
+                # try opportunistic checking if the filter keys are in the top level of the dictionary
+                if not self.determine_submission_filtering(data, filters):
+                    # though shall not pass, you have failed the filter criteria
+                    continue
+
             data = self.process_node(data, 'main', screen_nodes, True)
 
             submissions.append(data)
             self.indexes['main'] += 1
 
         return submissions
+
+    def determine_submission_filtering(self, data, filters):
+        # given the data and the filter criteria, determine if this submission should be included in the final dataset
+        # we assume all data shoud pass, until it does not satisfy one filter
+        for f_key, f_data in filters.iteritems():
+            # check if we have already processed the filter before
+            if f_key not in self.filters_in_detail:
+                self.filters_in_detail[f_key] = {'value': f_data}
+                for key, value in data.iteritems():
+                    # should we match tied to the end???
+                    if re.search(re.escape(f_key) + r"$", key):
+                        # we have a field which we need to use for filtering
+                        terminal.tprint("\tFound the field (%s) corresponding to the filter criteria (%s)" % (key, f_key), 'debug')
+                        self.filters_in_detail[f_key]['full_field_name'] = key
+
+            if 'full_field_name' not in self.filters_in_detail[f_key]:
+                # we dont have the filter field in this dataset, so we just continue (odd though since the filter field ought to be mandatory in all submissions)
+                continue
+
+            # we now have our field and the value, check if the current data should pass based on the value. the filter values are an array of items in lower case
+            # terminal.tprint("\tShould '%s' pass when compared to '%s?'" % (data[self.filters_in_detail[f_key]['full_field_name']].lower(), ''.join(['{0}{1}'.format(k, v) for k, v in self.filters_in_detail[f_key]['value'].iteritems()])), 'debug')
+            if data[self.filters_in_detail[f_key]['full_field_name']].lower() in self.filters_in_detail[f_key]['value']:
+                return True
+
+        # if we are here, it means all the filters if any were satisfied, so data should pass
+        return False
 
     def process_node(self, node, sheet_name, nodes_of_interest=None, add_top_id=True):
         # the sheet_name is the name of the sheet where the current data will be saved
