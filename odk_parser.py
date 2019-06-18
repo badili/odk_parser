@@ -883,7 +883,7 @@ class OdkParser():
         db_name = db_name.replace('.', '_')
         return db_name
 
-    def fetch_merge_data(self, form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True, filters=None):
+    def fetch_merge_data(self, form_id, nodes, d_format, download_type, view_name, uuids=None, update_local_data=True, is_dry_run=True, submission_filters=None):
         """
         Given a form id and nodes of interest, get data from all associated forms
         Args:
@@ -900,7 +900,7 @@ class OdkParser():
             Exception: Description
         """
 
-        # print( "%s - %s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name, filters))
+        # print( "%s - %s - %s - %s - %s - %s" % (form_id, nodes, d_format, download_type, view_name, submission_filters))
         view_name = None if view_name == '' else view_name
         associated_forms = []
         try:
@@ -938,10 +938,10 @@ class OdkParser():
 
         for form_id in associated_forms:
             try:
-                if filters is not None:
-                    if len(filters) == 0:
-                        filters = None
-                this_submissions = self.get_form_submissions_as_json(int(form_id), nodes, uuids, update_local_data, is_dry_run, filters)
+                if submission_filters is not None:
+                    if len(submission_filters) == 0:
+                        submission_filters = None
+                this_submissions = self.get_form_submissions_as_json(int(form_id), nodes, uuids, update_local_data, is_dry_run, submission_filters)
             except Exception as e:
                 # logging.debug(traceback.format_exc())
                 # logging.error(str(e))
@@ -992,7 +992,7 @@ class OdkParser():
         writer = ExcelWriter(filename)
         writer.create_workbook(submissions, structure)
 
-    def get_form_submissions_as_json(self, form_id, screen_nodes, uuids=None, update_local_data=True, is_dry_run=True, filters=None):
+    def get_form_submissions_as_json(self, form_id, screen_nodes, uuids=None, update_local_data=True, is_dry_run=True, submission_filters=None):
         """Given a form id get the form submissions
         
         If the screen_nodes is given, process and return only the subset of data in those forms
@@ -1041,9 +1041,9 @@ class OdkParser():
         screen_nodes = list(set(screen_nodes))
 
         submissions = []
-        if filters is not None:
+        if submission_filters is not None:
             # create a dictionary which will contain the details of the filters, ie, the short_field_name, full_field_name and the filter criteria
-            # terminal.tprint("\tWe are going to filter the data using the criteria: "+ json.dumps(filters), 'debug')
+            # terminal.tprint("\tWe are going to filter the data using the criteria: "+ json.dumps(submission_filters), 'debug')
             self.filters_in_detail = {}
         if is_dry_run:
             i = 0
@@ -1085,9 +1085,9 @@ class OdkParser():
                 data = json.loads(data)
 
             data['unique_id'] = pk_key
-            if filters is not None:
+            if submission_filters is not None:
                 # try opportunistic checking if the filter keys are in the top level of the dictionary
-                if not self.determine_submission_filtering(data, filters):
+                if not self.determine_submission_filtering(data, submission_filters):
                     # though shall not pass, you have failed the filter criteria
                     continue
 
