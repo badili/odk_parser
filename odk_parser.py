@@ -938,6 +938,9 @@ class OdkParser():
 
         for form_id in associated_forms:
             try:
+                if filters is not None:
+                    if len(filters) == 0:
+                        filters = None
                 this_submissions = self.get_form_submissions_as_json(int(form_id), nodes, uuids, update_local_data, is_dry_run, filters)
             except Exception as e:
                 # logging.debug(traceback.format_exc())
@@ -1021,7 +1024,7 @@ class OdkParser():
             # get the fields to include as part of the form metadata
             # todo: Add option of specifying metadata
             form_meta = ['_uuid', 's1p1q3_country', 's1p1q3_sel_country']
-            self.pk_name = 'cim_'
+            self.pk_name = 'hh_'
             self.sk_format = 'id_'
         except Exception as e:
             terminal.tprint("Form settings for form id (%d) haven't been defined" % form_id, 'fail')
