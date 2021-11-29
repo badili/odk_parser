@@ -92,7 +92,7 @@ class ExcelWriter():
                 # if the worksheet name is > 31 chars rename it to a shorter name due to Excel worksheet name restrictions
                 # https://stackoverflow.com/questions/3681868/is-there-a-limit-on-an-excel-worksheets-name-length
                 # we rename the worksheet by retaining the first 2 parts from s7p10q1_rpt_chicken_hlth_service ==> s7p10q1_rpt
-                matches = re.findall(ur'^(s[\d_\.]+p[\d_\.]+q[\d_\.]+?_)(rpt)?', sheet_name)
+                matches = re.findall(r'^(s[\d_\.]+p[\d_\.]+q[\d_\.]+?_)(rpt)?', sheet_name)
                 matches = list(matches[0])
                 if len(matches) == 2:
                     final_sheet_name = str(matches[0]) + str(matches[1])
